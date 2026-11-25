@@ -10,16 +10,30 @@ connectDB();
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+// Every deployed frontend origin must be listed here (no trailing slash).
+// CLIENT_URL can hold one or several comma-separated origins.
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://biryani-box.vercel.app',
+  'https://biryani-box-ck8d.vercel.app',
+  'https://biryanibox-inky.vercel.app',
+  'https://www.biriyani-box.com',
+  'https://biriyani-box.com',
+  ...String(process.env.CLIENT_URL || '').split(','),
+].map(o => o.trim().replace(/\/+$/, '')).filter(Boolean);
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://biryani-box.vercel.app',
-    'https://biryani-box-ck8d.vercel.app', 
-    "https://www.biriyani-box.com",
-    "https://biriyani-box.com",  // ← your actual Vercel URL
-    process.env.CLIENT_URL,                   // ← set this on Render dashboard
-  ].filter(Boolean),
+  origin(origin, callback) {
+    // No Origin header → curl, Postman or server-to-server call: allow it.
+    if (!origin) return callback(null, true);
+    const clean = origin.replace(/\/+$/, '');
+    if (ALLOWED_ORIGINS.includes(clean)) return callback(null, true);
+    // Any Vercel deployment of this project (production or preview URL).
+    if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(clean)) return callback(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(null, false); // no CORS headers → the browser blocks the call
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
