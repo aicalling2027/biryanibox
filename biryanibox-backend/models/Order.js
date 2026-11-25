@@ -54,6 +54,12 @@ const OrderSchema = new mongoose.Schema({
   delivery_customer_email: { type: String },
   delivery_customer_phone: { type: String },
 
+  // Customer contact captured when placing the order (name + phone required,
+  // email optional). Stored for every order type.
+  customer_name:  { type: String, trim: true },
+  customer_phone: { type: String, trim: true },
+  customer_email: { type: String, trim: true, lowercase: true },
+
   // Timestamps
   cooking_started_at:   { type: Date },
   cooking_completed_at: { type: Date },

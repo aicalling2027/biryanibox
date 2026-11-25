@@ -1,12 +1,27 @@
 const express = require('express');
 const router = express.Router();
 const ContactMessage = require('../models/ContactMessage');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 
 // POST /api/contact
 router.post('/', async (req, res, next) => {
   try {
     const msg = await ContactMessage.create(req.body);
+
+    // Alert owners/managers in-app — there is no dedicated inbox screen yet,
+    // so the notification bell is how staff learn about a new enquiry.
+    const staff = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true }).select('_id');
+    if (staff.length) {
+      await Notification.insertMany(staff.map(u => ({
+        user_id: u._id,
+        type: 'contact',
+        title: '✉️ New Contact Message',
+        message: `${msg.name} (${msg.email})${msg.guest_count ? ` — ${msg.guest_count} guests` : ''}: ${(msg.message || '').slice(0, 140)}`,
+      })));
+    }
+
     res.status(201).json({ success: true, data: msg, message: 'Message received! We will contact you shortly.' });
   } catch (err) { next(err); }
 });

@@ -125,6 +125,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('bb_token');
     localStorage.removeItem('bb_user');
     localStorage.removeItem('biryani_box_cart');
+    localStorage.removeItem('biryani_box_table_carts');
   };
 
   // Update user fields in state + localStorage (called after profile save)

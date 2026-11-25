@@ -245,6 +245,40 @@ router.patch('/assign-captain-tables', protect, authorize('owner', 'manager'), a
   } catch (err) { next(err); }
 });
 
+// ── PUT /api/tables/:id  — edit a table (owner/manager only) ──────────────
+router.put('/:id', protect, authorize('owner', 'manager'), async (req, res, next) => {
+  try {
+    const { label, capacity, type, captain_id } = req.body;
+    const table = await RestaurantTable.findById(req.params.id);
+    if (!table) return res.status(404).json({ success: false, message: 'Table not found' });
+
+    if (label !== undefined) {
+      const trimmed = String(label).trim();
+      if (!trimmed) return res.status(400).json({ success: false, message: 'Table label is required' });
+      const clash = await RestaurantTable.findOne({ label: trimmed, _id: { $ne: table._id } });
+      if (clash) return res.status(400).json({ success: false, message: `A table with label "${trimmed}" already exists` });
+      table.label = trimmed;
+    }
+
+    if (capacity !== undefined) table.capacity = Number(capacity) || table.capacity;
+    if (type) table.type = type;
+
+    if (captain_id !== undefined) {
+      if (captain_id) {
+        const cap = await User.findOne({ _id: captain_id, role: 'captain' });
+        if (!cap) return res.status(400).json({ success: false, message: 'User is not a captain' });
+        table.captain_id = captain_id;
+      } else {
+        table.captain_id = null;
+      }
+    }
+
+    await table.save();
+    const updated = await RestaurantTable.findById(table._id).populate('captain_id', 'name email');
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
 // ── DELETE /api/tables/:id ─────────────────────────────────────────────────
 router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
   try {

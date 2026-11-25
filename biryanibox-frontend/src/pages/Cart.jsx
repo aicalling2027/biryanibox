@@ -8,6 +8,7 @@ import {
   Tag, CheckCircle, XCircle, Gift, Copy, TrendingUp, Loader, Package,
   MapPin, RefreshCw, Clock, ChefHat, Star, Utensils, CheckSquare, CreditCard,
   UtensilsCrossed, Truck, ChevronsDown, ChevronDown, ChevronUp,
+  User, Phone, Mail, X,
 } from 'lucide-react';
 
 import heroImg         from '../assets/hero.png';
@@ -75,8 +76,8 @@ const REWARD_MILESTONE = 1000;
 const REWARD_AMOUNT    = 200;
 
 // ── Order steps — differ by order type ────────────────────────────────────────
+// Orders go straight to the kitchen: there is no confirmation hop before cooking.
 const DINEIN_STEPS = [
-  { key: 'pending_confirmation', label: 'Confirming', icon: Clock     },
   { key: 'pending',              label: 'Placed',     icon: Package    },
   { key: 'start_cooking',        label: 'Preparing',  icon: ChefHat    },
   { key: 'completed_cooking',    label: 'Ready',      icon: Utensils   },
@@ -98,7 +99,7 @@ const PICKUP_STEPS = [
   { key: 'dispatched',        label: 'At Counter',     icon: MapPin     },
   { key: 'paid',              label: 'Completed',      icon: CheckCircle},
 ];
-const DINEIN_STATUS_STEP   = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
+const DINEIN_STATUS_STEP   = { pending_confirmation:0, pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
 const DELIVERY_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
 const PICKUP_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
 const ORDER_STEPS    = DINEIN_STEPS;   // default fallback
@@ -108,6 +109,11 @@ const STATUS_TO_STEP = DINEIN_STATUS_STEP;
 // inline=true → compact banner inside cart page; inline=false → full-page view
 const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, knockBell = true, inline = false, onGoToBooking }) => {
   const navigate  = useNavigate();
+  const { tableNumber } = useCart();
+  // Keep a scanned table session alive so "Back to Menu" returns to /?table=N
+  const menuHref = String(tableNumber || '').trim()
+    ? `/?table=${encodeURIComponent(String(tableNumber).trim())}`
+    : '/';
   const [order,      setOrder]      = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh,setLastRefresh]= useState(new Date());
@@ -406,7 +412,7 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
           <button onClick={onNewOrder} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl text-white text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">
             + New Order
           </button>
-          <button onClick={() => navigate('/')} className="flex-1 py-4 btn-primary rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
+          <button onClick={() => navigate(menuHref)} className="flex-1 py-4 btn-primary rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
             Back to Menu <ArrowRight size={14} />
           </button>
         </div>
@@ -461,11 +467,17 @@ const OrderSuccessBanner = ({ orderNum, orderType = 'dinein', knockBell = true, 
 
 // ── Main Cart ─────────────────────────────────────────────────────────────────
 const Cart = () => {
-  const { cart, addToCart, removeFromCart, clearCart, total } = useCart();
+  const { cart, addToCart, removeFromCart, clearCart, total, tableNumber } = useCart();
   const { user }  = useAuth();
   const navigate  = useNavigate();
   const userId    = user?._id || user?.id || user?.email || null;
   const bookingRef = useRef(null);
+
+  // "Back to menu" after scanning a table QR must return to that table's menu,
+  // never to the marketing landing page.
+  const menuHref = String(tableNumber || '').trim()
+    ? `/?table=${encodeURIComponent(String(tableNumber).trim())}`
+    : '/';
 
   const [history,       setHistory]       = useState(() => userId ? getHistory(userId) : { runningTotal: 0, nextMilestone: 1000, entries: [], coupons: [] });
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -475,10 +487,28 @@ const Cart = () => {
   const [newCoupon,     setNewCoupon]     = useState(null);
   const [orderMode,     setOrderMode]     = useState('dinein'); // 'dinein' | 'takeaway'
   const [selectedTable, setSelectedTable] = useState(null);
+  const [tableNotice,   setTableNotice]   = useState('');
   const [availTables,   setAvailTables]   = useState([]);
   const [tablesLoading, setTablesLoading] = useState(false);
   const [deliveryAddr,  setDeliveryAddr]  = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
+
+  // Contact form shown before the order is sent to the kitchen
+  const [showContact,   setShowContact]   = useState(false);
+  const [contactName,   setContactName]   = useState('');
+  const [contactPhone,  setContactPhone]  = useState('');
+  const [contactEmail,  setContactEmail]  = useState('');
+  const [contactError,  setContactError]  = useState('');
+
+  // The contact form can be dismissed with Escape as well as Cancel / ✕
+  useEffect(() => {
+    if (!showContact) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && !placing) { setShowContact(false); setContactError(''); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showContact, placing]);
 
   const [knockBell,     setKnockBell]     = useState(true);  // true = ring bell, false = do not disturb
   const [orderError,    setOrderError]    = useState('');
@@ -554,19 +584,41 @@ const Cart = () => {
     if (orderMode !== 'delivery') { setPricingData(null); setPricingError(''); }
   }, [orderMode]);
 
-  // Load available tables when dine-in is selected
+  // Load available tables when dine-in is selected.
+  // If the customer scanned a table QR, that table is pre-selected.
   useEffect(() => {
     if (orderMode === 'dinein') {
       setTablesLoading(true);
+      setTableNotice('');
       tablesAPI.getAvailable()
-        .then(r => { setAvailTables(r.data || []); setSelectedTable(null); })
-        .catch(() => setAvailTables([]))
+        .then(r => {
+          const list = r.data || [];
+          const wanted = String(tableNumber || '').trim();
+          const match = wanted
+            ? list.find(t => String(t.table_number) === wanted || String(t.label || '') === wanted)
+            : null;
+          // The scanned table belongs to this guest — keep it selectable even if
+          // the floor plan marks it occupied (e.g. right after their first order).
+          const sessionTable = wanted && !match
+            ? {
+                _id: `session-${wanted}`,
+                label: /^\d+$/.test(wanted) ? `Table ${wanted}` : wanted,
+                table_number: wanted,
+                type: 'regular',
+              }
+            : null;
+          setAvailTables(sessionTable ? [sessionTable, ...list] : list);
+          setSelectedTable(match ? match.label : (sessionTable ? sessionTable.label : null));
+          setTableNotice('');
+        })
+        .catch(() => { setAvailTables([]); setSelectedTable(null); })
         .finally(() => setTablesLoading(false));
     } else {
       setSelectedTable('Takeaway');
       setAvailTables([]);
+      setTableNotice('');
     }
-  }, [orderMode]);
+  }, [orderMode, tableNumber]);
 
   const runningTotal    = parseFloat((history.runningTotal + total).toFixed(2));
   const nextMilestone   = history.nextMilestone || REWARD_MILESTONE;
@@ -655,7 +707,9 @@ const Cart = () => {
     return newlyUnlocked;
   };
 
-  const handlePlaceOrder = async () => {
+  // ── Contact details — name + phone required, email optional ────────────────
+  // Shown right before the order is sent to the kitchen and saved with it.
+  const openContactForm = () => {
     if (cart.length === 0) return;
     setOrderError('');
 
@@ -665,12 +719,35 @@ const Cart = () => {
     // Validate table for dine-in
     if (orderMode === 'dinein' && !selectedTable) { setOrderError('Please select a table.'); return; }
 
-    // Validate address for takeaway
+    // Validate address for delivery
     if (orderMode === 'delivery' && !deliveryAddr.trim()) { setOrderError('Delivery address is required for home delivery.'); return; }
 
     // Validate payment method
     if (!paymentMethod) { setOrderError('Please select a payment method to continue.'); return; }
 
+    setContactName(user?.name || '');
+    setContactPhone(user?.phone || '');
+    setContactEmail(user?.email || '');
+    setContactError('');
+    setShowContact(true);
+  };
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    const name  = contactName.trim();
+    const phone = contactPhone.trim();
+    const email = contactEmail.trim();
+    if (!name)  { setContactError('Please enter your full name.'); return; }
+    if (!phone) { setContactError('Please enter your phone number.'); return; }
+    if (phone.replace(/\D/g, '').length < 7) { setContactError('Please enter a valid phone number.'); return; }
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) { setContactError('Please enter a valid email address.'); return; }
+
+    setContactError('');
+    setShowContact(false);
+    await placeOrder({ name, phone, email });
+  };
+
+  const placeOrder = async (contact = {}) => {
     setPlacing(true);
     try {
       const snapshot = cart.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.price }));
@@ -679,6 +756,10 @@ const Cart = () => {
         order_type:      orderMode === 'dinein' ? 'dine-in' : orderMode,
         table_number:    orderMode === 'dinein' ? selectedTable : undefined,
         customer_id:     user?._id || user?.id,
+        // Contact details captured in the form before placing the order
+        customer_name:   contact.name  || undefined,
+        customer_phone:  contact.phone || undefined,
+        customer_email:  contact.email || undefined,
         total:           grandTotal,
         payment_method:  paymentMethod,
         // ── Discount fields so backend saves correct final total ──────────
@@ -726,6 +807,8 @@ const Cart = () => {
       setPlacedKnockBell(knockBell);
       saveActiveOrder({ orderId, orderNum, items: snapshot, total: grandTotal, placedAt: Date.now() });
       clearCart();
+      // The table session survives the order — the guest stays seated at the same
+      // table, and only that table's cart was cleared.
 
       // Show success banner first, then allow tracking
       setShowSuccess(true);
@@ -783,7 +866,7 @@ const Cart = () => {
 
         {/* Top navigation row */}
         <div className="flex items-center justify-between mb-10">
-          <button onClick={() => navigate('/menu/')} className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors group">
+          <button onClick={() => navigate(menuHref)} className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors group">
             <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" /> Back to Menu
           </button>
          
@@ -872,7 +955,7 @@ const Cart = () => {
             )}
            <button
             onClick={() => {
-              navigate('/');
+              navigate(menuHref);
               setTimeout(() => {
                 document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
               }, 100);
@@ -891,7 +974,7 @@ const Cart = () => {
                   <p className="text-lg font-bold">Your cart is empty</p>
                   <p className="text-text-muted text-sm mt-1">Add some flavors to get started</p>
                 </div>
-                <button onClick={() => navigate('/')} className="mt-6 btn-primary px-10 py-4 rounded-full text-xs font-black uppercase tracking-widest inline-flex items-center gap-2">
+                <button onClick={() => navigate(menuHref)} className="mt-6 btn-primary px-10 py-4 rounded-full text-xs font-black uppercase tracking-widest inline-flex items-center gap-2">
                   Browse Menu <ArrowRight size={14} />
                 </button>
               </div>
@@ -1140,6 +1223,9 @@ const Cart = () => {
                     {!selectedTable && !tablesLoading && availTables.length > 0 && (
                       <p className="text-[10px] text-yellow-400 font-bold">Please select a table to continue</p>
                     )}
+                    {tableNotice && (
+                      <p className="text-[10px] text-red-400 font-bold">{tableNotice}</p>
+                    )}
                   </div>
                 )}
 
@@ -1319,7 +1405,7 @@ const Cart = () => {
 
               {/* Place order button */}
               <button
-                onClick={handlePlaceOrder}
+                onClick={openContactForm}
                 disabled={placing || cart.length === 0 || !paymentMethod || (orderMode === 'dinein' && !selectedTable) || (orderMode === 'delivery' && !deliveryAddr.trim())}
                 className="relative w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest overflow-hidden group disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                 style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', boxShadow: '0 4px 24px rgba(245,158,11,0.35)' }}
@@ -1348,6 +1434,87 @@ const Cart = () => {
           )}
         </div>
       </div>
+
+      {/* ── Contact details form — required before the order goes to the kitchen ── */}
+      {/* No AnimatePresence here: an interrupted exit animation can leave an
+          invisible full-screen overlay behind that blocks every click. */}
+      {showContact && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto"
+          onClick={() => { if (!placing) { setShowContact(false); setContactError(''); } }}
+        >
+          <motion.form
+            initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }}
+            onClick={e => e.stopPropagation()}
+            onSubmit={handleContactSubmit}
+            noValidate
+              className="w-full max-w-md bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 my-auto space-y-5 shadow-3xl"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Almost there</p>
+                  <h3 className="text-xl font-black text-white mt-1">Confirm your details</h3>
+                  <p className="text-xs text-text-muted mt-1">Name and phone are required — email is optional.</p>
+                </div>
+                <button type="button" onClick={() => { setShowContact(false); setContactError(''); }}
+                  className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-all shrink-0">
+                  <X size={15} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">Full Name *</span>
+                  <div className="relative">
+                    <User size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. Rahul Sharma" autoFocus
+                      className="w-full bg-[#252525] border border-white/10 pl-10 pr-3 py-3 rounded-xl text-white text-sm focus:border-primary outline-none transition-all" />
+                  </div>
+                </label>
+
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">Phone Number *</span>
+                  <div className="relative">
+                    <Phone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} type="tel" inputMode="tel" placeholder="e.g. 98765 43210"
+                      className="w-full bg-[#252525] border border-white/10 pl-10 pr-3 py-3 rounded-xl text-white text-sm focus:border-primary outline-none transition-all" />
+                  </div>
+                </label>
+
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">Email <span className="text-text-muted/60 normal-case tracking-normal">(optional)</span></span>
+                  <div className="relative">
+                    <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} type="email" placeholder="you@example.com"
+                      className="w-full bg-[#252525] border border-white/10 pl-10 pr-3 py-3 rounded-xl text-white text-sm focus:border-primary outline-none transition-all" />
+                  </div>
+                </label>
+              </div>
+
+              {contactError && (
+                <p className="text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">{contactError}</p>
+              )}
+
+              <div className="flex items-end justify-between gap-3 border-t border-white/10 pt-4">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-text-muted">Amount Payable</p>
+                  <p className="text-xl font-black text-primary">${grandTotal.toFixed(2)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setShowContact(false); setContactError(''); }}
+                    className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all">
+                    Cancel
+                  </button>
+                  <button type="submit"
+                    className="px-5 py-3 rounded-xl bg-primary hover:bg-primary-hover text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all">
+                    <ShoppingBag size={13} /> Place Order
+                  </button>
+                </div>
+              </div>
+          </motion.form>
+        </motion.div>
+      )}
     </div>
   );
 };

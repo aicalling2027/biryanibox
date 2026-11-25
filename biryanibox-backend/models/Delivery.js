@@ -34,6 +34,10 @@ const DeliverySchema = new mongoose.Schema({
   distance_km:       { type: Number, min: 0 },
   estimated_mins:    { type: Number, min: 0 },
   current_location:  { type: String },
+  // Live rider position — written by PATCH /api/deliveries/:id/location
+  rider_lat:         { type: Number },
+  rider_lng:         { type: Number },
+  last_location_at:  { type: Date },
   delivery_fee:      { type: Number, default: 40 },
 
   // Captain dispatch flag — rider cannot pickup until captain marks dispatched

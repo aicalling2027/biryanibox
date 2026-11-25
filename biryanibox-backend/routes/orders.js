@@ -12,7 +12,7 @@ const Notification       = require('../models/Notification');
 const Delivery           = require('../models/Delivery');
 const ChefOrderAssignment = require('../models/ChefOrderAssignment');
 const { Resend } = require('resend');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, requireCheckIn } = require('../middleware/auth');
 
 // ── Email (Resend) ─────────────────────────────────────────────────────────
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -360,10 +360,12 @@ router.get('/:id', protect, async (req, res, next) => {
 });
 
 // ── POST /api/orders ───────────────────────────────────────────────────────
-router.post('/', protect, async (req, res, next) => {
+router.post('/', protect, requireCheckIn, async (req, res, next) => {
   try {
     const { items, table_number, order_type, payment_method, spiceness,
             delivery_address, delivery_notes, distance_km, knock_bell, pickup_extra_items,
+            // Customer contact details (name + phone mandatory, email optional)
+            customer_name, customer_phone, customer_email,
             // Discount fields sent from Cart.jsx frontend
             coupon_discount: rawCouponDiscount,
             gift_card_discount: rawGiftDiscount,
@@ -378,6 +380,19 @@ router.post('/', protect, async (req, res, next) => {
 
     // captain_id: only trust it from staff, never from customers
     const captain_id = req.user.role === 'customer' ? null : (req.body.captain_id || null);
+
+    // ── Customer contact details (name + phone required, email optional) ──────
+    const contactName  = String(customer_name  || '').trim();
+    const contactPhone = String(customer_phone || '').trim();
+    const contactEmail = String(customer_email || '').trim();
+    if (req.user.role === 'customer') {
+      if (!contactName)
+        return res.status(400).json({ success: false, message: 'Full name is required to place the order' });
+      if (!contactPhone)
+        return res.status(400).json({ success: false, message: 'Phone number is required to place the order' });
+      if (contactEmail && !/^\S+@\S+\.\S+$/.test(contactEmail))
+        return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
+    }
 
     if (!items || !items.length) return res.status(400).json({ success: false, message: 'No items in order' });
 
@@ -460,10 +475,11 @@ router.post('/', protect, async (req, res, next) => {
 
     const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
 
-    // Dine-in orders require owner/manager confirmation within 10 minutes
+    // Dine-in orders are NOT gated behind a captain/manager approval step —
+    // every order lands in the kitchen queue immediately so the chef is
+    // notified the moment the customer places it.
     const isDineIn = finalOrderType === 'dine-in';
-    const initialStatus = isDineIn ? 'pending_confirmation' : 'pending';
-    const confirmationExpiresAt = isDineIn ? new Date(Date.now() + 10 * 60 * 1000) : undefined;
+    const initialStatus = 'pending';
 
     const order = await Order.create({
       customer_id, captain_id: assignedCaptainId, table_number,
@@ -477,8 +493,14 @@ router.post('/', protect, async (req, res, next) => {
                       : giftDiscount > 0 ? 'gift_card'
                       : (payment_method || 'cash'),
       status: initialStatus,
-      confirmation_expires_at: confirmationExpiresAt,
       spiceness: spiceness || 'medium',
+      // Contact details for this order
+      customer_name:  contactName  || undefined,
+      customer_phone: contactPhone || undefined,
+      customer_email: contactEmail || undefined,
+      delivery_customer_name:  needsAddress ? (contactName  || undefined) : undefined,
+      delivery_customer_email: needsAddress ? (contactEmail || undefined) : undefined,
+      delivery_customer_phone: needsAddress ? (contactPhone || undefined) : undefined,
       delivery_address: needsAddress ? delivery_address.trim() : undefined,
       delivery_notes:   needsAddress ? (delivery_notes || '') : undefined,
       knock_bell:       needsAddress ? (knock_bell !== false) : undefined,
@@ -499,37 +521,35 @@ router.post('/', protect, async (req, res, next) => {
 
     if (customer_id) await User.findByIdAndUpdate(customer_id, { $inc: { order_count: 1 } });
 
-    if (isDineIn) {
-      // ── Dine-in: notify owner + manager to ACCEPT or REJECT within 10 min ──
-      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-      await Notification.insertMany(managersAndOwners.map(u => ({
-        user_id: u._id, type: 'order_confirm_required',
-        title: '⏰ Dine-In Order — Action Required',
-        message: `Order #${order.order_number} at Table ${table_number} needs your approval within 10 minutes. Total: $${order.total}. Accept or reject now.`,
-        order_id: order._id,
-      })));
-    } else {
-      // ── Non dine-in: notify owner + manager (info only) ─────────────────────
-      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-      await Notification.insertMany(managersAndOwners.map(u => ({
-        user_id: u._id, type: 'new_order', title: '🛒 New Order Placed',
-        message: `Order #${order.order_number} — ${finalOrderType}. Total: $${order.total}`,
-      })));
-
-      // Notify chefs for non-dine-in orders immediately
-      const chefs = await User.find({ role: 'chef', is_active: true });
+    // ── Kitchen first: the chef is notified the moment the order is placed ───
+    const tableLabel = (() => {
+      const raw = String(table_number || '');
+      const n = parseInt(raw, 10);
+      if (!isNaN(n) && String(n) === raw) return `Table ${n}`;
+      return raw;
+    })();
+    const chefs = await User.find({ role: 'chef', is_active: true });
+    if (chefs.length) {
       await Notification.insertMany(chefs.map(u => ({
         user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
-        message: `Order #${order.order_number} is waiting. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
+        message: `Order #${order.order_number}${isDineIn && tableLabel ? ` — ${tableLabel}` : ` — ${finalOrderType}`}. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
+        order_id: order._id,
       })));
     }
 
-    // ── Notify ONLY the captain assigned to this specific table ──────────────
-    if (isDineIn && assignedCaptainId) {
-      await Notification.create({
-        user_id: assignedCaptainId, type: 'new_order', title: '🪑 New Order – Your Table',
-        message: `Order #${order.order_number} placed on Table ${table_number}. Awaiting manager confirmation. Total: $${order.total}`,
-      });
+    // ── Owner / manager: informational copy only (no approval step) ──────────
+    const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+    if (managersAndOwners.length) {
+      await Notification.insertMany(managersAndOwners.map(u => ({
+        user_id: u._id, type: 'new_order', title: '🛒 New Order Placed',
+        message: `Order #${order.order_number} — ${isDineIn && tableLabel ? tableLabel : finalOrderType}. Total: ₹${order.total}`,
+        order_id: order._id,
+      })));
+    }
+
+    // Dine-in: the table is taken as soon as the order is placed
+    if (isDineIn && resolvedTableNum) {
+      await RestaurantTable.findOneAndUpdate({ table_number: resolvedTableNum }, { status: 'occupied' });
     }
 
     // ── For delivery/pickup: notify ONLY captain4 (no-table captain) ─────────
@@ -541,7 +561,7 @@ router.post('/', protect, async (req, res, next) => {
           await Notification.create({
             user_id: cap._id, type: 'new_order',
             title: finalOrderType === 'delivery' ? '🚗 New Delivery Order' : '📦 New Pickup Order',
-            message: `Order #${order.order_number} — ${finalOrderType}. Total: $${order.total}`,
+            message: `Order #${order.order_number} — ${finalOrderType}. Total: ₹${order.total}`,
           });
         }
       }
@@ -555,41 +575,12 @@ router.post('/', protect, async (req, res, next) => {
       }
     }
 
-    // ── Auto-expire: schedule rejection if dine-in not confirmed in 10 min ──
-    if (isDineIn) {
-      setTimeout(async () => {
-        try {
-          const fresh = await Order.findById(order._id);
-          if (fresh && fresh.status === 'pending_confirmation') {
-            fresh.status = 'cancelled';
-            fresh.confirmation_expires_at = undefined;
-            await fresh.save();
-            // Notify customer
-            if (customer_id) {
-              await Notification.create({
-                user_id: customer_id, type: 'order_rejected',
-                title: '❌ Order Auto-Cancelled',
-                message: `Order #${order.order_number} was not confirmed within 10 minutes and has been automatically cancelled. Please try again.`,
-              });
-            }
-            // Notify manager/owner
-            const mgrs = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-            await Notification.insertMany(mgrs.map(u => ({
-              user_id: u._id, type: 'order_expired',
-              title: '⏱ Order Expired',
-              message: `Order #${order.order_number} was auto-cancelled after 10 min confirmation timeout.`,
-            })));
-          }
-        } catch (e) { console.error('[AutoExpire]', e.message); }
-      }, 10 * 60 * 1000);
-    }
-
     res.status(201).json({ success: true, data: { ...order.toObject(), items: createdItems } });
   } catch (err) { next(err); }
 });
 
 // ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
-router.patch('/:id/confirm', protect, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
+router.patch('/:id/confirm', protect, requireCheckIn, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
   try {
     const { action } = req.body; // 'accept' | 'reject'
     if (!['accept', 'reject'].includes(action))
@@ -657,7 +648,7 @@ router.patch('/:id/confirm', protect, authorize('owner', 'manager', 'captain'), 
 });
 
 // ── PATCH /api/orders/:id/status ──────────────────────────────────────────
-router.patch('/:id/status', protect, async (req, res, next) => {
+router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
   try {
     const { status } = req.body;
     const userRole = req.user.role;

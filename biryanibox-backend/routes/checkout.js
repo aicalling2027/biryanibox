@@ -230,7 +230,8 @@ router.post('/', protect, async (req, res, next) => {
         delivery_address,
         delivery_notes:   delivery_notes || '',
         knock_bell:       knock_bell !== false,
-        delivery_fee:     DELIVERY_FEE,
+        delivery_fee:     deliveryFee,
+        distance_km:      deliveryDistanceKm || undefined,
         status:           'pending',
         order_placed_at:  new Date(),
       });

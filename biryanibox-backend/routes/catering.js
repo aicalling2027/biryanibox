@@ -25,7 +25,10 @@ router.get('/', protect, authorize('owner','manager'), async (req, res, next) =>
 });
 
 // ── GET single ────────────────────────────────────────────────────────────
-router.get('/:id', protect, async (req, res, next) => {
+// NOTE: the id segment is constrained to a 24-char ObjectId so that static
+// routes declared further down (e.g. GET /send-reminders) are not swallowed
+// by this catch-all — otherwise Express returns a CastError 500 instead.
+router.get('/:id([0-9a-fA-F]{24})', protect, async (req, res, next) => {
   try {
     const item = await CateringOrder.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, message: 'Catering order not found' });
@@ -205,7 +208,7 @@ router.patch('/:id/send-quotation', protect, authorize('owner','manager'), async
                 <tr><td style="color:#888;padding:4px 0;">Event Date</td><td style="text-align:right;color:#fff;">${item.event_date}</td></tr>
                 <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || item.guest_count || 'TBD'}</td></tr>
                 <tr><td style="color:#888;padding:4px 0;">Event Type</td><td style="text-align:right;color:#fff;">${item.event_type || 'Catering'}</td></tr>
-                ${total_price ? `<tr><td style="color:#888;padding:4px 0;">Total Quote</td><td style="text-align:right;color:#f97316;font-weight:bold;font-size:18px;">$${total_price}</td></tr>` : ''}
+                ${total_price ? `<tr><td style="color:#888;padding:4px 0;">Total Quote</td><td style="text-align:right;color:#f97316;font-weight:bold;font-size:18px;">₹${total_price}</td></tr>` : ''}
               </table>
             </div>
             ${quotation_message ? `
@@ -247,14 +250,20 @@ router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
 // manager AND customer for catering events happening tomorrow.
 router.get('/send-reminders', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+    // event_date is a Date field, so query a real date range (a $regex on a
+    // Date column is rejected by MongoDB).
+    const tomorrowStart = new Date();
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    tomorrowStart.setHours(0, 0, 0, 0);
+    const tomorrowEnd = new Date(tomorrowStart);
+    tomorrowEnd.setHours(23, 59, 59, 999);
+    const tomorrowStr = tomorrowStart.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // Find catering orders whose event_date starts with tomorrow's date string
+    // Find catering orders whose event_date falls tomorrow
     const events = await CateringOrder.find({
-      event_date: { $regex: `^${tomorrowStr}` },
+      event_date: { $gte: tomorrowStart, $lte: tomorrowEnd },
       status: { $in: ['pending', 'confirmed'] },
+      reminder_24h_sent: { $ne: true }, // guard: never remind twice
     });
 
     let sentCount = 0;
@@ -343,6 +352,7 @@ router.get('/send-reminders', protect, authorize('owner', 'manager'), async (req
         });
       }
       sentCount++;
+      await CateringOrder.findByIdAndUpdate(event._id, { reminder_24h_sent: true });
     }
 
     res.json({ success: true, message: `Reminders sent for ${sentCount} event(s) happening tomorrow.` });

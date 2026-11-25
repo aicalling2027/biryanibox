@@ -7,7 +7,6 @@ const safeGet = (key, fallback = null) => {
   catch { return fallback; }
 };
 const safeSet = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
-const safeRemove = (key) => { try { localStorage.removeItem(key); } catch {} };
 const safeParseJSON = (str, fallback) => {
   try { return JSON.parse(str || "null") ?? fallback; }
   catch { return fallback; }
@@ -21,21 +20,49 @@ const isCustomerLoggedIn = () => {
   } catch { return false; }
 };
 
+const TABLE_CARTS_KEY = "biryani_box_table_carts";
+
 const getLocalCart = () => safeParseJSON(safeGet("biryani_box_cart"), []);
 
+// One cart per table: a guest who scanned Table 6's QR only ever sees Table 6's
+// items, so two tables scanned on the same device never share a cart. The ""
+// bucket is the regular online / takeaway cart.
+const getTableCarts = () => {
+  const stored = safeParseJSON(safeGet(TABLE_CARTS_KEY), null);
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) return stored;
+  return { "": getLocalCart() }; // migrate the pre-table-bucket cart
+};
+
 export const CartProvider = ({ children }) => {
-  const [cart, setCart] = useState(getLocalCart);
   const [tableNumber, setTableNumber] = useState(() => safeGet("biryani_box_table", ""));
+  const [carts, setCarts] = useState(getTableCarts);
   const [syncing, setSyncing] = useState(false);
   const dbLoadAttempted = useRef(false);
+
+  // Active bucket — the scanned table, or "" for a normal online cart
+  const tableKey = String(tableNumber || "").trim();
+  const inTableSession = !!tableKey;
+  const cart = carts[tableKey] || [];
+
+  // Write through to the active table's own bucket
+  const setCart = useCallback((updater) => {
+    setCarts(prev => {
+      const current = prev[tableKey] || [];
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return { ...prev, [tableKey]: next };
+    });
+  }, [tableKey]);
 
   useEffect(() => { safeSet("biryani_box_table", tableNumber); }, [tableNumber]);
 
   useEffect(() => {
-    if (!isCustomerLoggedIn()) safeSet("biryani_box_cart", JSON.stringify(cart));
-  }, [cart]);
+    safeSet(TABLE_CARTS_KEY, JSON.stringify(carts));
+    safeSet("biryani_box_cart", JSON.stringify(carts[""] || []));
+  }, [carts]);
 
   const loadCartFromDB = useCallback(async (force = false) => {
+    // A table session is device-local — never let the account cart leak into it
+    if (String(safeGet("biryani_box_table", "") || "").trim()) return;
     if (!isCustomerLoggedIn()) { setCart(getLocalCart()); return; }
     if (dbLoadAttempted.current && !force) return;
     dbLoadAttempted.current = true;
@@ -77,44 +104,35 @@ export const CartProvider = ({ children }) => {
 
   const addToCart = async (item) => {
     const id = item._id || item.id;
-    if (isCustomerLoggedIn()) {
-      setCart(prev => {
-        const ex = prev.find(i => (i._id || i.id) === id);
-        if (ex) return prev.map(i => (i._id || i.id) === id ? { ...i, quantity: i.quantity + 1 } : i);
-        return [...prev, { ...item, id, _id: id, quantity: 1 }];
-      });
-      try { await cartAPI.add(id, 1); }
-      catch { await loadCartFromDB(true); }
-    } else {
-      setCart(prev => {
-        const ex = prev.find(i => (i._id || i.id) === id);
-        if (ex) return prev.map(i => (i._id || i.id) === id ? { ...i, quantity: i.quantity + 1 } : i);
-        return [...prev, { ...item, id, quantity: 1 }];
-      });
-    }
+    setCart(prev => {
+      const ex = prev.find(i => (i._id || i.id) === id);
+      if (ex) return prev.map(i => (i._id || i.id) === id ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, { ...item, id, _id: id, quantity: 1 }];
+    });
+    // Table carts stay local to the device that scanned the QR
+    if (inTableSession || !isCustomerLoggedIn()) return;
+    try { await cartAPI.add(id, 1); }
+    catch { await loadCartFromDB(true); }
   };
 
   const removeFromCart = async (itemId) => {
     const ex = cart.find(i => (i._id || i.id) === itemId);
     if (!ex) return;
-    if (isCustomerLoggedIn()) {
-      const newQty = ex.quantity - 1;
-      if (newQty <= 0) setCart(prev => prev.filter(i => (i._id || i.id) !== itemId));
-      else setCart(prev => prev.map(i => (i._id || i.id) === itemId ? { ...i, quantity: newQty } : i));
-      try {
-        if (newQty <= 0) await cartAPI.remove(itemId);
-        else await cartAPI.update(itemId, newQty);
-      } catch { await loadCartFromDB(true); }
-    } else {
-      if (ex.quantity > 1) setCart(cart.map(i => (i._id || i.id) === itemId ? { ...i, quantity: i.quantity - 1 } : i));
-      else setCart(cart.filter(i => (i._id || i.id) !== itemId));
-    }
+    const newQty = ex.quantity - 1;
+    setCart(prev => newQty <= 0
+      ? prev.filter(i => (i._id || i.id) !== itemId)
+      : prev.map(i => (i._id || i.id) === itemId ? { ...i, quantity: newQty } : i));
+    if (inTableSession || !isCustomerLoggedIn()) return;
+    try {
+      if (newQty <= 0) await cartAPI.remove(itemId);
+      else await cartAPI.update(itemId, newQty);
+    } catch { await loadCartFromDB(true); }
   };
 
   const clearCart = async () => {
     setCart([]);
-    safeRemove("biryani_box_cart");
-    if (isCustomerLoggedIn()) { try { await cartAPI.clear(); } catch {} }
+    if (inTableSession || !isCustomerLoggedIn()) return;
+    try { await cartAPI.clear(); } catch {}
   };
 
   const total = cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0);

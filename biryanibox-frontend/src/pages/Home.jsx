@@ -7,11 +7,11 @@ import {
   ShoppingBag, User, Menu as MenuIcon, X, ShieldCheck, ChevronDown, LogOut,
   Gift, ListOrdered, Clock, MapPin, Truck, Facebook, Instagram, ArrowRight,
   Star, CheckCircle, Search, ChevronRight, Navigation, Download,
-  MessageSquare, ThumbsUp, Send,
+  MessageSquare, ThumbsUp, Send, Plus, Minus,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useOrders, useAuth } from '../context/useContextHooks';
-import { feedbackAPI, announcementsAPI } from '../services/api';
+import { feedbackAPI, announcementsAPI, contactAPI } from '../services/api';
 import { useCart } from '../context/useContextHooks';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -247,8 +247,15 @@ const MenuCategories = () => {
   const [filterVeg, setFilterVeg]       = useState('all');
   const [filterSpice, setFilterSpice]   = useState('all');
   const [filterHalal, setFilterHalal]   = useState(false);
-  const { addToCart } = useCart();
+  const { cart, addToCart, removeFromCart } = useCart();
   const { menu }      = useOrders();
+
+  // How many of this item are already in the box (per-table cart)
+  const qtyInBox = (item) => {
+    const id = item._id || item.id;
+    const found = cart.find(i => (i._id || i.id) === id);
+    return found ? found.quantity : 0;
+  };
 
   // Derive activeCategory from URL — survives refresh and back/forward navigation
   const activeCategory = searchParams.get('category') || 'All';
@@ -407,17 +414,41 @@ const MenuCategories = () => {
                   </div>
                   <p className="text-xs text-text-muted leading-relaxed mb-10 h-12 line-clamp-2 font-medium">{item.desc}</p>
                   <div className="flex items-center justify-between gap-4">
-                    <button
-                      onClick={() => {
-                        addToCart({
-                          id: item.id, _id: item._id, name: item.name, price: item.price,
-                          category: item.category, image: item.image, image_url: item.image_url,
-                        });
-                      }}
-                      disabled={!item.available || item.stock <= 0}
-                      className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-xl ${item.available && item.stock > 0 ? 'bg-white/5 border border-white/10 group-hover:bg-primary group-hover:text-white group-hover:border-primary text-white' : 'bg-white/10 text-white/30 cursor-not-allowed'}`}>
-                      {item.available && item.stock > 0 ? 'Add To Box' : item.stock <= 0 ? 'Out of Stock' : 'Unavailable'}
-                    </button>
+                    {qtyInBox(item) > 0 ? (
+                      <div className="w-full flex items-center justify-between gap-2 bg-white/5 border border-primary/50 rounded-2xl p-1.5 shadow-xl">
+                        <button
+                          onClick={() => removeFromCart(item._id || item.id)}
+                          aria-label={`Remove one ${item.name}`}
+                          className="w-11 h-11 rounded-xl bg-white/5 hover:bg-red-500/20 text-white hover:text-red-400 flex items-center justify-center transition-all">
+                          <Minus size={16} />
+                        </button>
+                        <span className="text-base font-black text-white tabular-nums">{qtyInBox(item)}</span>
+                        <button
+                          onClick={() => {
+                            addToCart({
+                              id: item.id, _id: item._id, name: item.name, price: item.price,
+                              category: item.category, image: item.image, image_url: item.image_url,
+                            });
+                          }}
+                          aria-label={`Add one more ${item.name}`}
+                          disabled={!item.available || item.stock <= 0}
+                          className="w-11 h-11 rounded-xl bg-primary hover:bg-primary-hover text-white flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                          <Plus size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          addToCart({
+                            id: item.id, _id: item._id, name: item.name, price: item.price,
+                            category: item.category, image: item.image, image_url: item.image_url,
+                          });
+                        }}
+                        disabled={!item.available || item.stock <= 0}
+                        className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-xl ${item.available && item.stock > 0 ? 'bg-white/5 border border-white/10 group-hover:bg-primary group-hover:text-white group-hover:border-primary text-white' : 'bg-white/10 text-white/30 cursor-not-allowed'}`}>
+                        {item.available && item.stock > 0 ? 'Add To Box' : item.stock <= 0 ? 'Out of Stock' : 'Unavailable'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </MotionDiv>
@@ -783,15 +814,28 @@ const CustomerFeedback = () => {
 // ─── Contact ──────────────────────────────────────────────────────────────────
 const Contact = () => {
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [contactError,  setContactError]  = useState('');
   const [formData, setFormData] = useState({ name: '', email: '', date_requested: '', guest_count: '', message: '' });
   const sf = f => e => setFormData(p => ({ ...p, [f]: e.target.value }));
 
   const handleContactSubmit = async (e) => {
     e.preventDefault();
+    setContactError('');
     try {
-      await feedbackAPI.create({ name: formData.name, email: formData.email, date_requested: formData.date_requested ? new Date(formData.date_requested) : null, guest_count: Number(formData.guest_count) || 1, message: formData.message });
+      // Save to the contact-message collection (name / email / date / guests / message)
+      await contactAPI.send({
+        name: formData.name,
+        email: formData.email,
+        date_requested: formData.date_requested ? new Date(formData.date_requested) : undefined,
+        guest_count: Number(formData.guest_count) || undefined,
+        message: formData.message,
+      });
       setFormSubmitted(true);
-    } catch (_) { setFormSubmitted(true); }
+    } catch (err) {
+      // Never swallow the failure — this used to show "success" even when the
+      // request was rejected (the feedback endpoint requires a rating).
+      setContactError(err.message || 'Could not send your request. Please try again.');
+    }
   };
 
   return (
@@ -835,6 +879,7 @@ const Contact = () => {
                 <input type="number" placeholder="GUEST DENSITY" min="1" value={formData.guest_count} onChange={sf('guest_count')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest" />
               </div>
               <textarea placeholder="ADDITIONAL DEPLOYMENT INSTRUCTIONS..." rows="4" value={formData.message} onChange={sf('message')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest leading-loose" />
+              {contactError && <p className="text-red-400 text-xs font-bold">{contactError}</p>}
               <button className="w-full py-6 bg-primary text-white font-black uppercase tracking-[0.4em] text-xs rounded-2xl hover:bg-primary-hover transition-all shadow-2xl shadow-primary/20">Deliver Request</button>
             </form>
           )}
@@ -952,12 +997,88 @@ const PreviousOrderPopup = ({ onAccept, onDismiss, lastOrder, secondsLeft }) => 
   );
 };
 
+// ─── Scanned table QR — focused menu-only view ────────────────────────────────
+// Landing page for /?table=<n>. Shows only the menu so a customer sitting at the
+// table can order immediately; the table is remembered for checkout.
+const TableMenuView = ({ tableParam }) => {
+  const { cart, tableNumber, setTableNumber, total } = useCart();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (tableParam && tableParam !== tableNumber) setTableNumber(tableParam);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableParam]);
+
+  useEffect(() => { window.scrollTo({ top: 0 }); }, []);
+
+  // Quantities, not distinct lines — that is what the guest expects to see
+  const itemCount = cart.reduce((sum, i) => sum + (i.quantity || 1), 0);
+
+  const tableLabel = (() => {
+    const v = String(tableParam || '').trim();
+    const n = parseInt(v, 10);
+    return (!isNaN(n) && String(n) === v) ? `Table ${n}` : (v || 'Table');
+  })();
+
+  return (
+    <div className="bg-bg-main min-h-screen">
+      <Navbar />
+
+      <div className="pt-20">
+        {/* Guest check — which table this order belongs to */}
+        <div className="bg-bg-offset border-b border-white/5">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <p className="text-sm font-black text-white">{tableLabel}</p>
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-muted hidden sm:inline">
+                Dine-in · scan &amp; order
+              </span>
+            </div>
+            <button onClick={() => navigate('/')} className="text-[10px] font-black uppercase tracking-widest text-text-muted hover:text-white transition-all">
+              Home
+            </button>
+          </div>
+        </div>
+
+        <MenuCategories />
+      </div>
+
+      {/* Box — always reachable from the scanned menu */}
+      <AnimatePresence>
+        {itemCount > 0 && (
+          <MotionButton
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            onClick={() => navigate('/cart')}
+            className="fixed bottom-6 right-4 sm:right-8 z-[100] h-16 pl-5 pr-6 rounded-full bg-primary text-white flex items-center gap-3 shadow-3xl shadow-primary/40 hover:bg-primary-hover transition-all border border-white/20"
+          >
+            <span className="relative">
+              <ShoppingBag size={22} />
+              <span className="absolute -top-2.5 -right-2.5 w-5 h-5 bg-white text-primary rounded-full flex items-center justify-center text-[10px] font-black border border-primary">
+                {itemCount}
+              </span>
+            </span>
+            <span className="text-[11px] font-black uppercase tracking-widest">
+              {itemCount} {itemCount === 1 ? 'item' : 'items'} · ${total.toFixed(2)}
+            </span>
+            <ArrowRight size={16} />
+          </MotionButton>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // ─── Home (Main page assembly) ────────────────────────────────────────────────
 const Home = () => {
   const { cart, addToCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const { orders } = useOrders();
+  const [searchParams] = useSearchParams();
+  const scannedTable = searchParams.get('table');
 
   const [showPrevOrderPopup, setShowPrevOrderPopup] = useState(false);
   const [prevOrder, setPrevOrder] = useState(null);
@@ -1038,6 +1159,9 @@ const Home = () => {
     popupDismissedRef.current = true;
     setShowPrevOrderPopup(false);
   };
+
+  // A table QR was scanned → show the menu-only ordering page
+  if (scannedTable) return <TableMenuView tableParam={scannedTable} />;
 
   return (
     <div className="bg-bg-main">

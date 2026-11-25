@@ -11,7 +11,7 @@ import {
   Search, LayoutDashboard, TrendingDown, Coffee, MapPin, Phone,
   Mail, User, Shield, AlertTriangle, Play, CheckSquare, Utensils,
   Timer, ToggleLeft, ToggleRight, Hash, Briefcase, CheckCircle, XCircle,
-  Activity, BarChart2, TrendingUp as Trend, Truck,
+  Activity, BarChart2, TrendingUp as Trend, Truck, QrCode,
 } from 'lucide-react';
 import { useAuth, useOrders } from '../context/useContextHooks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -21,6 +21,7 @@ import {
   menuAPI, cateringAPI, leavesAPI, deliveryAPI, budgetAPI, wasteAPI,
 } from '../services/api';
 import POS from '../components/POS';
+import TableQRModal from '../components/TableQR';
 
 // ─── Auto-refresh hook ───────────────────────────────────────────────────────
 // silent=true means background auto-refresh — never shows loading spinner
@@ -1594,9 +1595,13 @@ const TableStatus = ({ user }) => {
   const [msg, setMsg] = useState({ text: '', type: '' });
   const [isDeliveryCaptain, setIsDeliveryCaptain] = useState(false);
   const [showAddTable, setShowAddTable] = useState(false);
-  const [addForm, setAddForm] = useState({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+  const [addForm, setAddForm] = useState({ mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', captain_id: '' });
   const [captains, setCaptains] = useState([]);
   const [addingTable, setAddingTable] = useState(false);
+  const [qrTable, setQrTable] = useState(null); // table whose QR modal is open
+  const [editTable, setEditTable] = useState(null); // table being edited
+  const [editForm, setEditForm] = useState({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const isCaptain = user?.role === 'captain';
   const isOwner = user?.role === 'owner';
@@ -1648,23 +1653,116 @@ const TableStatus = ({ user }) => {
     finally { setUpdating(null); }
   };
 
-  const handleAddTable = async (e) => {
-    e.preventDefault();
-    if (!addForm.label.trim()) { flash('Table label is required', 'error'); return; }
+  // Only tables that are free right now can be picked from the label dropdown
+  const availableTables = useMemo(
+    () => [...tables].filter(t => t.status === 'available').sort((a, b) => a.table_number - b.table_number),
+    [tables]
+  );
+
+  // The add form starts on an available table (pick → QR) and can switch to "new"
+  const blankAddForm = { mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', captain_id: '' };
+
+  const formFromTable = (t) => ({
+    mode: 'existing',
+    table_id: t?._id || '',
+    label: t?.label || '',
+    capacity: t?.capacity || 4,
+    type: t?.type || 'regular',
+    captain_id: t?.captain_id?._id || '',
+  });
+
+  const openAddTable = () => {
+    const first = availableTables[0];
+    setAddForm(first ? formFromTable(first) : { ...blankAddForm, mode: 'new' });
+    setShowAddTable(true);
+  };
+
+  const selectedAddTable = addForm.mode === 'existing'
+    ? availableTables.find(t => t._id === addForm.table_id) || null
+    : null;
+
+  // Creates a brand-new table (only used in "new" mode)
+  const createTable = async () => {
+    if (!addForm.label.trim()) { flash('Table label is required', 'error'); return null; }
     setAddingTable(true);
     try {
-      await tablesAPI.create({
+      const res = await tablesAPI.create({
         label: addForm.label.trim(),
         capacity: parseInt(addForm.capacity) || 4,
         type: addForm.type,
         captain_id: addForm.captain_id || undefined,
       });
-      flash(`Table "${addForm.label}" added successfully!`);
       setShowAddTable(false);
-      setAddForm({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+      setAddForm({ ...blankAddForm, mode: 'new' });
       load();
-    } catch (err) { flash(err.message || 'Failed to add table', 'error'); }
-    finally { setAddingTable(false); }
+      return res.data || null;
+    } catch (err) {
+      flash(err.message || 'Failed to add table', 'error');
+      return null;
+    } finally { setAddingTable(false); }
+  };
+
+  const handleAddTable = async (e) => {
+    e.preventDefault();
+    if (addForm.mode === 'existing') return; // nothing to create — use Generate QR
+    const created = await createTable();
+    if (created) flash(`Table "${created.label}" added successfully!`);
+  };
+
+  // Existing table → save the details shown, then show its QR. New label → create it, then show its QR.
+  const handleAddAndGenerateQR = async () => {
+    if (addForm.mode === 'existing') {
+      if (!selectedAddTable) { flash('Pick an available table first', 'error'); return; }
+      setAddingTable(true);
+      try {
+        const res = await tablesAPI.update(selectedAddTable._id, {
+          capacity: parseInt(addForm.capacity) || selectedAddTable.capacity,
+          type: addForm.type,
+          captain_id: addForm.captain_id || '',
+        });
+        setShowAddTable(false);
+        load();
+        setQrTable(res.data || selectedAddTable);
+      } catch (err) {
+        flash(err.message || 'Could not generate the QR', 'error');
+      } finally { setAddingTable(false); }
+      return;
+    }
+    const created = await createTable();
+    if (!created) return;
+    flash(`Table "${created.label}" added — QR ready`);
+    setQrTable(created);
+  };
+
+  // Edit an existing table (label, capacity, type, captain)
+  const openEdit = (t) => {
+    setEditTable(t);
+    setEditForm({
+      label: t.label || String(t.table_number || ''),
+      capacity: t.capacity || 4,
+      type: t.type || 'regular',
+      captain_id: t.captain_id?._id || t.captain_id || '',
+    });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editTable) return;
+    if (!editForm.label.trim()) { flash('Table label is required', 'error'); return; }
+    setSavingEdit(true);
+    try {
+      await tablesAPI.update(editTable._id, {
+        label: editForm.label.trim(),
+        capacity: parseInt(editForm.capacity) || 4,
+        type: editForm.type,
+        captain_id: editForm.captain_id || '',
+      });
+      setEditTable(null);
+      load();
+      flash('Table updated');
+    } catch (err) {
+      flash(err.message || 'Failed to update table', 'error');
+    } finally { setSavingEdit(false); }
   };
 
   const tableConfig = {
@@ -1729,7 +1827,7 @@ const TableStatus = ({ user }) => {
           </div>
           {canAddTable && (
             <button
-              onClick={() => setShowAddTable(true)}
+              onClick={openAddTable}
               className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all"
             >
               <Plus size={14} /> Add Table
@@ -1753,72 +1851,208 @@ const TableStatus = ({ user }) => {
       )}
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
+      {/* Table QR modal — opened from the add form or from a table card */}
+      <AnimatePresence>
+        {qrTable && <TableQRModal table={qrTable} onClose={() => setQrTable(null)} />}
+      </AnimatePresence>
+
       {/* Add Table Modal */}
       <AnimatePresence>
         {showAddTable && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
-              className="bg-[#1a1a1a] rounded-3xl border border-white/10 w-full max-w-sm shadow-2xl">
-              <div className="flex items-center justify-between p-6 border-b border-white/10">
+              className="bg-[#1a1a1a] rounded-3xl border border-white/10 w-full max-w-sm shadow-2xl max-h-[90vh] flex flex-col my-auto">
+              <div className="flex items-center justify-between p-6 border-b border-white/10 shrink-0">
                 <h3 className="text-xl font-black text-white flex items-center gap-2"><Plus size={18} className="text-primary" />Add New Table</h3>
                 <button onClick={() => setShowAddTable(false)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all"><X size={16} /></button>
               </div>
-              <form onSubmit={handleAddTable} className="p-6 space-y-4">
-                <div>
-                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TABLE LABEL *</label>
-                  <input
-                    type="text" required
-                    value={addForm.label}
-                    onChange={e => setAddForm(p => ({ ...p, label: e.target.value }))}
-                    placeholder="e.g. Table 10, Terrace 1, Lounge A"
-                    className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20"
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
+              <form onSubmit={handleAddTable} className="flex flex-col min-h-0 overflow-hidden">
+                <div className="p-6 pb-2 space-y-4 overflow-y-auto">
                   <div>
-                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">CAPACITY</label>
-                    <input
-                      type="number" min="1" max="50"
-                      value={addForm.capacity}
-                      onChange={e => setAddForm(p => ({ ...p, capacity: e.target.value }))}
-                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TYPE</label>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TABLE LABEL *</label>
                     <select
-                      value={addForm.type}
-                      onChange={e => setAddForm(p => ({ ...p, type: e.target.value }))}
+                      value={addForm.mode === 'existing' ? addForm.table_id : '__new__'}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === '__new__') { setAddForm({ ...blankAddForm, mode: 'new' }); return; }
+                        const picked = availableTables.find(t => t._id === v);
+                        if (picked) setAddForm(formFromTable(picked));
+                      }}
                       className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
                     >
-                      <option value="regular">Regular</option>
-                      <option value="vip">VIP</option>
-                      <option value="outdoor">Outdoor</option>
+                      {availableTables.map(t => (
+                        <option key={t._id} value={t._id}>
+                          {t.label || `Table ${t.table_number}`}{t.capacity ? ` · ${t.capacity} seats` : ''}
+                        </option>
+                      ))}
+                      <option value="__new__">+ New table…</option>
+                    </select>
+                    {addForm.mode === 'existing' && availableTables.length === 0 && (
+                      <p className="text-[11px] text-yellow-400 font-bold mt-1.5">No available tables right now — choose “+ New table…” below.</p>
+                    )}
+                    {selectedAddTable && (
+                      <p className="text-[10px] text-text-muted mt-1.5">
+                        {availableTables.length} available · QR opens{' '}
+                        <span className="text-primary font-bold">/?table={selectedAddTable.table_number}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {addForm.mode === 'new' && (
+                    <div>
+                      <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">NEW LABEL *</label>
+                      <input
+                        type="text" required
+                        value={addForm.label}
+                        onChange={e => setAddForm(p => ({ ...p, label: e.target.value }))}
+                        placeholder="e.g. Table 11, Terrace 1, Lounge A"
+                        className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20"
+                      />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
+                    <div>
+                      <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">CAPACITY</label>
+                      <input
+                        type="number" min="1" max="50"
+                        value={addForm.capacity}
+                        onChange={e => setAddForm(p => ({ ...p, capacity: e.target.value }))}
+                        className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TYPE</label>
+                      <select
+                        value={addForm.type}
+                        onChange={e => setAddForm(p => ({ ...p, type: e.target.value }))}
+                        className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                      >
+                        <option value="regular">Regular</option>
+                        <option value="vip">VIP</option>
+                        <option value="outdoor">Outdoor</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
+                    <select
+                      value={addForm.captain_id}
+                      onChange={e => setAddForm(p => ({ ...p, captain_id: e.target.value }))}
+                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {captains.map(c => (
+                        <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
+                      ))}
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
-                  <select
-                    value={addForm.captain_id}
-                    onChange={e => setAddForm(p => ({ ...p, captain_id: e.target.value }))}
-                    className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
-                  >
-                    <option value="">— Unassigned —</option>
-                    {captains.map(c => (
-                      <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
-                    ))}
-                  </select>
+
+                {/* Actions are pinned — always reachable on short screens */}
+                <div className="px-6 py-5 space-y-2 border-t border-white/10 shrink-0">
+                  <p className="text-[10px] text-text-muted mb-1 leading-relaxed">
+                    {addForm.mode === 'existing' ? (
+                      <>Pick a table, then tap <span className="text-primary font-bold">Generate QR</span> to print its menu code.</>
+                    ) : (
+                      <><span className="text-primary font-bold">Add Table</span> saves it · <span className="text-primary font-bold">Generate QR</span> saves it and opens the code.</>
+                    )}
+                  </p>
+                  <div className={addForm.mode === 'existing' ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'}>
+                    <button type="button" onClick={() => setShowAddTable(false)}
+                      className="py-3 px-1 border border-white/20 rounded-2xl text-[10px] font-black uppercase tracking-wider text-white/70 hover:bg-white/5 transition-all whitespace-nowrap">Cancel</button>
+                    {addForm.mode === 'new' && (
+                      <button type="submit" disabled={addingTable}
+                        className="py-3 px-1 border border-primary/40 text-primary hover:bg-primary/10 rounded-2xl text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center whitespace-nowrap disabled:opacity-50">
+                        {addingTable ? <Loader size={13} className="animate-spin" /> : 'Add Table'}
+                      </button>
+                    )}
+                    <button type="button" onClick={handleAddAndGenerateQR} disabled={addingTable}
+                      className="py-3 px-1 bg-primary hover:bg-primary-hover text-white rounded-2xl text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center whitespace-nowrap shadow-lg shadow-primary/20 disabled:opacity-50">
+                      {addingTable ? <Loader size={13} className="animate-spin" /> : 'Generate QR'}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setShowAddTable(false)}
-                    className="flex-1 py-3.5 border border-white/20 rounded-2xl text-sm font-bold text-white/70 hover:bg-white/5 transition-all">Cancel</button>
-                  <button type="submit" disabled={addingTable}
-                    className="flex-1 py-3.5 bg-primary hover:bg-primary-hover text-white rounded-2xl text-sm font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50">
-                    {addingTable ? <Loader size={14} className="animate-spin" /> : <Plus size={14} />}
-                    {addingTable ? 'Adding...' : 'Add Table'}
-                  </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Table Modal */}
+      <AnimatePresence>
+        {editTable && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
+              className="bg-[#1a1a1a] rounded-3xl border border-white/10 w-full max-w-sm shadow-2xl max-h-[90vh] flex flex-col my-auto">
+              <div className="flex items-center justify-between p-6 border-b border-white/10 shrink-0">
+                <h3 className="text-xl font-black text-white flex items-center gap-2"><Edit2 size={18} className="text-primary" />Edit Table</h3>
+                <button onClick={() => setEditTable(null)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all"><X size={16} /></button>
+              </div>
+              <form onSubmit={handleSaveEdit} className="flex flex-col min-h-0 overflow-hidden">
+                <div className="p-6 pb-2 space-y-4 overflow-y-auto">
+                  <div>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TABLE LABEL *</label>
+                    <input
+                      type="text" required
+                      value={editForm.label}
+                      onChange={e => setEditForm(p => ({ ...p, label: e.target.value }))}
+                      placeholder="e.g. Table 10, Terrace 1, Lounge A"
+                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
+                    <div>
+                      <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">CAPACITY</label>
+                      <input
+                        type="number" min="1" max="50"
+                        value={editForm.capacity}
+                        onChange={e => setEditForm(p => ({ ...p, capacity: e.target.value }))}
+                        className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TYPE</label>
+                      <select
+                        value={editForm.type}
+                        onChange={e => setEditForm(p => ({ ...p, type: e.target.value }))}
+                        className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                      >
+                        <option value="regular">Regular</option>
+                        <option value="vip">VIP</option>
+                        <option value="outdoor">Outdoor</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
+                    <select
+                      value={editForm.captain_id}
+                      onChange={e => setEditForm(p => ({ ...p, captain_id: e.target.value }))}
+                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {captains.map(c => (
+                        <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="px-6 py-5 space-y-2 border-t border-white/10 shrink-0">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => setEditTable(null)}
+                      className="py-3 px-1 border border-white/20 rounded-2xl text-[10px] font-black uppercase tracking-wider text-white/70 hover:bg-white/5 transition-all whitespace-nowrap">Cancel</button>
+                    <button type="button" onClick={() => { setQrTable(editTable); setEditTable(null); }}
+                      className="py-3 px-1 border border-primary/40 text-primary hover:bg-primary/10 rounded-2xl text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center whitespace-nowrap">
+                      Show QR
+                    </button>
+                    <button type="submit" disabled={savingEdit}
+                      className="py-3 px-1 bg-primary hover:bg-primary-hover text-white rounded-2xl text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center whitespace-nowrap shadow-lg shadow-primary/20 disabled:opacity-50">
+                      {savingEdit ? <Loader size={13} className="animate-spin" /> : 'Save'}
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>
@@ -1846,6 +2080,10 @@ const TableStatus = ({ user }) => {
                     })()
                   }</p>
                   {isUpdating && <Loader size={14} className="animate-spin text-primary" />}
+                  <button onClick={() => openEdit(t)} title="Edit table"
+                    className="w-6 h-6 rounded-lg bg-white/10 hover:bg-primary text-white/60 hover:text-white flex items-center justify-center transition-all">
+                    <Edit2 size={12} />
+                  </button>
                 </div>
                 {t.capacity && <p className="text-[10px] text-text-muted mb-2">{t.capacity} seats</p>}
                 <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase mb-2 inline-block ${cfg.badge}`}>

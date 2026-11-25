@@ -30,8 +30,14 @@ const Navbar = () => {
   const [isProfileOpen,    setIsProfileOpen]    = useState(false);
   const [orderMode,        setOrderMode]        = useState(getOrderMode);
   const { user, logout } = useAuth();
-  const { cart }         = useCart();
+  const { cart, tableNumber } = useCart();
   const navigate         = useNavigate();
+
+  // Inside a QR table session, "Home" / "Menu" must keep the customer on
+  // /?table=N instead of dropping them on the marketing landing page.
+  const homeHref = String(tableNumber || '').trim()
+    ? `/?table=${encodeURIComponent(String(tableNumber).trim())}`
+    : '/';
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 50);
@@ -66,7 +72,7 @@ const Navbar = () => {
     if (href === '/') {
       // HOME — scroll to top; navigate to / if on another page
       if (window.location.pathname !== '/') {
-        navigate('/');
+        navigate(homeHref);
         setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -75,14 +81,14 @@ const Navbar = () => {
       // MENU — navigate to '/' (clearing any ?category= param), then scroll + reset
       // Using navigate('/') strips URL params, which resets the category to "All".
       if (window.location.pathname !== '/') {
-        navigate('/');
+        navigate(homeHref);
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('bb_menu_reset'));
           document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
         }, 350);
       } else {
         // Already on home — clear category param from URL, then scroll
-        navigate('/', { replace: true });
+        navigate(homeHref, { replace: true });
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('bb_menu_reset'));
           document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
@@ -93,7 +99,7 @@ const Navbar = () => {
       if (window.location.pathname === '/') {
         document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
       } else {
-        navigate('/');
+        navigate(homeHref);
         setTimeout(() => {
           document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
         }, 350);
@@ -115,7 +121,7 @@ const Navbar = () => {
       <div className="container flex justify-between items-center">
 
         {/* Logo */}
-        <a onClick={() => navigate('/')} className="text-3xl font-black flex items-center gap-2 group cursor-pointer">
+        <a onClick={() => navigate(homeHref)} className="text-3xl font-black flex items-center gap-2 group cursor-pointer">
           <span className="text-primary group-hover:scale-110 transition-transform">BIRYANI</span>
           <span className="text-white">BOX</span>
         </a>

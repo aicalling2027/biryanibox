@@ -1,5 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
+const ShiftLog = require('../models/ShiftLog');
 
 // ── protect: verify JWT ────────────────────────────────────────────────────
 exports.protect = async (req, res, next) => {
@@ -37,14 +38,25 @@ exports.requireCheckIn = async (req, res, next) => {
   // Customer has no check-in
   if (req.user.role === 'customer') return next();
   // Staff roles must be checked in
-  if (CHECK_IN_ROLES.includes(req.user.role)) {
-    if (!req.user.is_checked_in) {
-      return res.status(403).json({
-        success: false,
-        message: 'You must check in before accessing the dashboard.',
-        code: 'CHECK_IN_REQUIRED',
-      });
+  if (!CHECK_IN_ROLES.includes(req.user.role)) return next();
+
+  // Fast path: flag was written by POST /api/shifts/checkin
+  if (req.user.is_checked_in) return next();
+
+  // Fallback: an active shift row also proves the user is on duty. Covers
+  // shifts opened before the flag was kept in sync — otherwise those users
+  // would see "On Shift" in the UI yet get rejected by the API.
+  try {
+    const active = await ShiftLog.findOne({ user_id: req.user._id, status: 'active' }).select('_id').lean();
+    if (active) {
+      await User.findByIdAndUpdate(req.user._id, { is_checked_in: true }); // self-heal
+      return next();
     }
-  }
-  next();
+  } catch (_) { /* fall through to the 403 below */ }
+
+  return res.status(403).json({
+    success: false,
+    message: 'Please check in to start your shift before performing this action.',
+    code: 'CHECK_IN_REQUIRED',
+  });
 };

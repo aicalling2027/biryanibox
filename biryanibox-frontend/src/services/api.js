@@ -210,6 +210,14 @@ export const feedbackAPI = {
   delete:      (id)          => request(`/feedback/${id}`,         { method: 'DELETE' }),
 };
 
+// ── CONTACT ───────────────────────────────────────────────────────
+export const contactAPI = {
+  send:      (body)          => request('/contact',                 { method: 'POST',   body: JSON.stringify(body) }),
+  getAll:    (params = '')   => request(`/contact${params}`),
+  setStatus: (id, status)    => request(`/contact/${id}/status`,     { method: 'PATCH',  body: JSON.stringify({ status }) }),
+  delete:    (id)            => request(`/contact/${id}`,            { method: 'DELETE' }),
+};
+
 // ── NOTIFICATIONS ─────────────────────────────────────────────────
 export const notificationsAPI = {
   getAll:      ()   => request('/notifications'),

@@ -110,9 +110,12 @@ router.patch('/:id/location', protect, authorize('delivery'), async (req, res, n
     if (!delivery) return res.status(404).json({ success: false, message: 'Not found' });
     if (delivery.driver_id?.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: 'Not your delivery' });
-    delivery.current_location = address || (lat && lng ? `${lat},${lng}` : delivery.current_location);
-    if (lat) delivery.rider_lat = lat;
-    if (lng) delivery.rider_lng = lng;
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum);
+    if (address) delivery.current_location = address;
+    else if (hasCoords) delivery.current_location = `${latNum},${lngNum}`;
+    if (hasCoords) { delivery.rider_lat = latNum; delivery.rider_lng = lngNum; delivery.last_location_at = new Date(); }
     await delivery.save();
     res.json({ success: true, data: delivery });
   } catch (err) { next(err); }

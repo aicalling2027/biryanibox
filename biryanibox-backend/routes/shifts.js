@@ -54,9 +54,12 @@ router.get('/active', protect, authorize('owner', 'manager'), async (req, res, n
 // POST /api/shifts/checkin
 router.post('/checkin', protect, async (req, res, next) => {
   try {
-    // Check if already checked in
+    // Idempotent: an active shift already exists → just re-sync the user flag
     const existing = await ShiftLog.findOne({ user_id: req.user._id, status: 'active' });
-    if (existing) return res.status(400).json({ success: false, message: 'Already checked in' });
+    if (existing) {
+      await User.findByIdAndUpdate(req.user._id, { is_checked_in: true });
+      return res.json({ success: true, data: existing, message: 'Already checked in' });
+    }
 
     const shift = await ShiftLog.create({
       user_id: req.user._id,
@@ -64,8 +67,10 @@ router.post('/checkin', protect, async (req, res, next) => {
       check_in: new Date(),
       date: new Date().toISOString().split('T')[0],
       status: 'active',
-      notes: req.body.notes || '',
+      notes: req.body?.notes || '',
     });
+    // requireCheckIn middleware reads this flag — keep it in sync with the shift log
+    await User.findByIdAndUpdate(req.user._id, { is_checked_in: true, last_checkin_at: shift.check_in });
     res.status(201).json({ success: true, data: shift });
   } catch (err) { next(err); }
 });
@@ -91,6 +96,12 @@ router.patch('/:id/checkout', protect, async (req, res, next) => {
       notes: req.body.notes || shift.notes,
     }, { new: true }).populate('user_id', 'name role');
 
+    // Keep the check-in flag of the shift owner in sync
+    await User.findByIdAndUpdate(shift.user_id, {
+      is_checked_in: false,
+      last_checkout_at: checkOut,
+    });
+
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });
@@ -100,6 +111,47 @@ router.get('/my-active', protect, async (req, res, next) => {
   try {
     const shift = await ShiftLog.findOne({ user_id: req.user._id, status: 'active' });
     res.json({ success: true, data: shift });
+  } catch (err) { next(err); }
+});
+
+// GET /api/shifts/checkin-status — current user's check-in status
+router.get('/checkin-status', protect, async (req, res, next) => {
+  try {
+    const active = await ShiftLog.findOne({ user_id: req.user._id, status: 'active' });
+    res.json({
+      success: true,
+      data: {
+        is_checked_in:   !!active,
+        last_checkin_at: active?.check_in || req.user.last_checkin_at || null,
+        name: req.user.name,
+        role: req.user.role,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// POST /api/shifts/checkout — close the caller's active shift (no id needed)
+router.post('/checkout', protect, async (req, res, next) => {
+  try {
+    const shift = await ShiftLog.findOne({ user_id: req.user._id, status: 'active' });
+    if (!shift) {
+      await User.findByIdAndUpdate(req.user._id, { is_checked_in: false });
+      return res.status(400).json({ success: false, message: 'Not checked in' });
+    }
+
+    const checkOut = new Date();
+    shift.check_out        = checkOut;
+    shift.duration_minutes = Math.round((checkOut - shift.check_in) / 60000);
+    shift.status           = 'completed';
+    if (req.body?.notes) shift.notes = req.body.notes;
+    await shift.save();
+
+    await User.findByIdAndUpdate(req.user._id, {
+      is_checked_in: false,
+      last_checkout_at: checkOut,
+    });
+
+    res.json({ success: true, data: shift, message: 'Checked out successfully' });
   } catch (err) { next(err); }
 });
 
@@ -120,48 +172,3 @@ router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
 });
 
 module.exports = router;
-// ── POST /api/shifts/checkin  — staff check in ──────────────────────────
-router.post('/checkin', protect, async (req, res, next) => {
-  try {
-    const ALLOWED = ['manager', 'captain', 'chef', 'delivery'];
-    if (!ALLOWED.includes(req.user.role))
-      return res.status(400).json({ success: false, message: 'Only staff can check in' });
-    if (req.user.is_checked_in)
-      return res.status(400).json({ success: false, message: 'Already checked in' });
-
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const existing = await ShiftLog.findOne({ user_id: req.user._id, date: today.toISOString().split('T')[0] });
-    if (!existing) {
-      await ShiftLog.create({
-        user_id: req.user._id, role: req.user.role,
-        date: today.toISOString().split('T')[0],
-        check_in: new Date(), status: 'present',
-      });
-    }
-    await User.findByIdAndUpdate(req.user._id, { is_checked_in: true, last_checkin_at: new Date() });
-    res.json({ success: true, message: 'Checked in successfully', checked_in: true });
-  } catch (err) { next(err); }
-});
-
-// ── POST /api/shifts/checkout  — staff check out ─────────────────────────
-router.post('/checkout', protect, async (req, res, next) => {
-  try {
-    if (!req.user.is_checked_in)
-      return res.status(400).json({ success: false, message: 'Not checked in' });
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    await ShiftLog.findOneAndUpdate(
-      { user_id: req.user._id, date: today.toISOString().split('T')[0] },
-      { check_out: new Date() }
-    );
-    await User.findByIdAndUpdate(req.user._id, { is_checked_in: false, last_checkout_at: new Date() });
-    res.json({ success: true, message: 'Checked out successfully', checked_in: false });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/shifts/checkin-status  — current user's check-in status ─────
-router.get('/checkin-status', protect, async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user._id).select('is_checked_in last_checkin_at name role');
-    res.json({ success: true, data: { is_checked_in: user.is_checked_in, last_checkin_at: user.last_checkin_at, name: user.name, role: user.role } });
-  } catch (err) { next(err); }
-});
