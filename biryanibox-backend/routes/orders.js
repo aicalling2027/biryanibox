@@ -779,6 +779,20 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
       updateData.chef_id = req.user._id;
     }
 
+    // ── Chef cook-time: advertise an ETA on start, stamp the real time on done ──
+    if (status === 'start_cooking' && !order.estimated_cooking_minutes) {
+      updateData.estimated_cooking_minutes = 20; // default ETA, chef can nudge it later
+    }
+    let cookTimeMins = null;
+    if (status === 'completed_cooking' && order.cooking_started_at) {
+      cookTimeMins = Math.max(1, Math.round((Date.now() - new Date(order.cooking_started_at).getTime()) / 60000));
+      updateData.cooking_duration_minutes = cookTimeMins;
+    }
+    const cookTimeLabel = cookTimeMins ? ` Chef took ${cookTimeMins} min.` : '';
+    // Human-friendly table label — table_number is sometimes stored as "Table 4"
+    const rawTableLabel = String(order.table_number || '').trim();
+    const tableLabel = !rawTableLabel ? '' : (/table/i.test(rawTableLabel) ? rawTableLabel : `Table ${rawTableLabel}`);
+
     // ── Create/update ChefOrderAssignment when chef starts or completes cooking ──
     if (status === 'start_cooking' && userRole === 'chef') {
       const existing = await ChefOrderAssignment.findOne({ order_id: order._id, chef_id: req.user._id });
@@ -887,15 +901,15 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
       const managers = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
       await Notification.insertMany(managers.map(c => ({
         user_id: c._id, type: 'order_ready', title: '✅ Order Ready to Serve',
-        message: `Order #${updated.order_number} cooking done — ${updated.table_number ? `Table ${updated.table_number}` : updated.order_type}`,
+        message: `Order #${updated.order_number} cooking done${cookTimeMins ? ` in ${cookTimeMins} min` : ''} — ${tableLabel || updated.order_type}`,
       })));
 
       if (updated.order_type === 'dine-in' && updated.waiter_id) {
-        // Notify only the waiter assigned to this table
+        // Notify only the waiter assigned to this table — include the chef's cook time
         await Notification.create({
           user_id: updated.waiter_id, type: 'order_ready',
           title: '✅ Order Ready — Your Table',
-          message: `Order #${updated.order_number} is ready. Table ${updated.table_number} — serve now!`,
+          message: `Order #${updated.order_number} is ready. ${tableLabel} — serve now!${cookTimeLabel}`,
         });
       } else if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
         // Notify waiter4 (no-table waiter) for pickup/delivery
@@ -906,7 +920,7 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
             await Notification.create({
               user_id: waiter._id, type: 'order_ready',
               title: '✅ Order Ready — Dispatch Now',
-              message: `Order #${updated.order_number} cooking complete. Type: ${updated.order_type}. Ready for dispatch to rider.`,
+              message: `Order #${updated.order_number} cooking complete. Type: ${updated.order_type}. Ready for dispatch to rider.${cookTimeLabel}`,
             });
           }
         }
@@ -939,6 +953,62 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
     }
 
     res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/orders/:id/estimate ────────────────────────────────────────
+// A chef can nudge the prep-time ETA up/down in 10-minute steps once he has
+// accepted (started cooking) the order. Body: { delta: -10 | 10 } or { minutes: 30 }
+router.patch('/:id/estimate', protect, requireCheckIn, async (req, res, next) => {
+  try {
+    const userRole = req.user.role;
+    if (!['chef', 'owner', 'manager'].includes(userRole))
+      return res.status(403).json({ success: false, message: 'Only a chef, owner or manager can adjust the prep time' });
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    if (order.status !== 'start_cooking')
+      return res.status(400).json({ success: false, message: 'Prep time can only be adjusted while the order is cooking' });
+
+    // Chef may only adjust the order they accepted
+    if (userRole === 'chef' && order.chef_id && order.chef_id.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: 'This order is being cooked by another chef' });
+
+    const current = order.estimated_cooking_minutes || 20;
+    let estimate;
+    if (req.body.delta !== undefined) {
+      const delta = Number(req.body.delta);
+      if (!Number.isFinite(delta)) return res.status(400).json({ success: false, message: 'delta must be a number' });
+      estimate = current + delta;
+    } else if (req.body.minutes !== undefined) {
+      estimate = Number(req.body.minutes);
+      if (!Number.isFinite(estimate)) return res.status(400).json({ success: false, message: 'minutes must be a number' });
+    } else {
+      return res.status(400).json({ success: false, message: 'Provide delta or minutes' });
+    }
+
+    // Clamp to a sane 5–240 minute window
+    estimate = Math.min(240, Math.max(5, Math.round(estimate)));
+
+    const updated = await Order.findByIdAndUpdate(
+      order._id,
+      { estimated_cooking_minutes: estimate },
+      { new: true }
+    ).populate('waiter_id', 'name').populate('chef_id', 'name').populate('served_by', 'name');
+
+    // Tell the serving waiter the ETA moved
+    if (updated.waiter_id) {
+      const rawTableLabel = String(updated.table_number || '').trim();
+      const tableLabel = !rawTableLabel ? '' : (/table/i.test(rawTableLabel) ? rawTableLabel : `Table ${rawTableLabel}`);
+      await Notification.create({
+        user_id: updated.waiter_id, type: 'cooking',
+        title: `⏱ Prep Time ${estimate > current ? 'Increased' : 'Reduced'} — ${estimate} min`,
+        message: `Order #${updated.order_number}${tableLabel ? ` (${tableLabel})` : ''} — the chef set the new ETA to ${estimate} min.`,
+      });
+    }
+
+    res.json({ success: true, message: `Prep time set to ${estimate} min`, data: updated });
   } catch (err) { next(err); }
 });
 

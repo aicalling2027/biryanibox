@@ -107,6 +107,8 @@ export const ordersAPI = {
   // Public tracker used by guest orders (no token required)
   track:         (id)                => request(`/orders/track/${id}`),
   updateStatus:  (id, status)        => request(`/orders/${id}/status`,  { method: 'PATCH', body: JSON.stringify({ status }) }),
+  // Chef prep-time nudge while cooking — body: { delta: -10|10 } or { minutes }
+  setEstimate:   (id, body)          => request(`/orders/${id}/estimate`, { method: 'PATCH', body: JSON.stringify(body) }),
   confirmOrder:  (id, action)        => request(`/orders/${id}/confirm`, { method: 'PATCH', body: JSON.stringify({ action }) }),
   rate:          (id, body)          => request(`/orders/${id}/rating`,  { method: 'PATCH', body: JSON.stringify(body) }),
   delete:        (id)                => request(`/orders/${id}`,         { method: 'DELETE' }),
@@ -367,6 +369,10 @@ export const normalizeOrder = (order) => ({
   // Track who served/dispatched — set on 'served' (dine-in) and 'dispatched' (pickup/delivery)
   served_by:                 order.served_by || null,
   customerName:              order.customer_id?.name || 'Walk-in Guest',
+  // Guest contact captured by the checkout contact form (used by the order detail card)
+  customer_name:             order.customer_name || order.customer_id?.name || '',
+  customer_phone:            order.customer_phone || order.customer_id?.phone || '',
+  customer_email:            order.customer_email || order.customer_id?.email || '',
   status:                    order.status,
   spiceness:                 order.spiceness || 'medium',
   timestamp:                 order.created_at,
@@ -379,6 +385,12 @@ export const normalizeOrder = (order) => ({
   paid_at:                   order.paid_at,
   rating:                    order.rating || 0,
   feedback:                  order.feedback || '',
+  // Money breakdown for the order detail card
+  subtotal:                  order.subtotal || 0,
+  coupon_discount:           order.coupon_discount || 0,
+  gift_card_discount:        order.gift_card_discount || 0,
+  tier_discount:             order.tier_discount || 0,
+  delivery_fee:              order.delivery_fee || 0,
   // Delivery / pickup customer requirements
   delivery_address:          order.delivery_address || '',
   delivery_notes:            order.delivery_notes   || '',

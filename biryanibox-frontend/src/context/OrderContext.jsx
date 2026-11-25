@@ -196,6 +196,27 @@ export const OrderProvider = ({ children }) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isNew: false } : o));
   };
 
+  // Chef prep-time nudge (−10/+10) — flip the number optimistically, then confirm
+  const updateOrderEstimate = async (orderId, delta) => {
+    const clamp = (v) => Math.min(240, Math.max(5, v));
+    setOrders(prev => prev.map(o =>
+      (o.id === orderId || o._id === orderId)
+        ? { ...o, estimated_cooking_minutes: clamp((o.estimated_cooking_minutes || 20) + delta) }
+        : o
+    ));
+    try {
+      const res = await ordersAPI.setEstimate(orderId, { delta });
+      const eta = res?.data?.estimated_cooking_minutes;
+      if (eta == null) return;
+      setOrders(prev => prev.map(o =>
+        (o.id === orderId || o._id === orderId) ? { ...o, estimated_cooking_minutes: eta } : o
+      ));
+    } catch (err) {
+      console.error('updateOrderEstimate error:', err.message);
+      loadOrders(); // roll back to the server's truth
+    }
+  };
+
   const deleteOrder = async (orderId) => {
     try {
       await ordersAPI.delete(orderId);
@@ -256,7 +277,7 @@ export const OrderProvider = ({ children }) => {
     <OrderContext.Provider value={{
       orders, ingredients, menu, coupons,
       availableCoupons, usedCoupons, customerNotification,
-      createOrder, updateOrderStatus, acknowledgeOrder, deleteOrder,
+      createOrder, updateOrderStatus, acknowledgeOrder, deleteOrder, updateOrderEstimate,
       deleteUsedCoupons, applyCoupon, dismissCustomerNotification,
       updateMenuStock, toggleMenuAvailability, updateIngredientStock,
       importIngredientsCSV, exportIngredientsCSV,

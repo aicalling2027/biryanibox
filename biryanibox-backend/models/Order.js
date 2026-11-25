@@ -63,6 +63,11 @@ const OrderSchema = new mongoose.Schema({
   // Timestamps
   cooking_started_at:   { type: Date },
   cooking_completed_at: { type: Date },
+
+  // Chef prep-time: the ETA the chef advertises (adjustable in 10-min steps
+  // while cooking) and the actual minutes the chef took (stamped on completion).
+  estimated_cooking_minutes: { type: Number, default: 20, min: 5, max: 240 },
+  cooking_duration_minutes:  { type: Number, min: 0 },
   served_at:            { type: Date },
   paid_at:              { type: Date },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });

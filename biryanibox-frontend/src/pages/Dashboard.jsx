@@ -55,6 +55,13 @@ const STATUS_LABELS = {
   cancelled:         'Cancelled',
 };
 
+// Table numbers are stored inconsistently ("2", "Table 2") — always render one "Table N"
+const formatTableLabel = (raw) => {
+  if (!raw) return '—';
+  const m = String(raw).match(/\d+/);
+  return m ? `Table ${m[0]}` : String(raw);
+};
+
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, waiterTableNumbers, open, onClose }) => {
   // No hooks that subscribe to external contexts — keeps memo effective
@@ -374,23 +381,273 @@ const useCookTimer = (order) => {
   return elapsed;
 };
 
+// Minutes the chef took — stored on completion, else derived from timestamps
+const getCookMins = (order) => {
+  if (order.cooking_duration_minutes != null) return order.cooking_duration_minutes;
+  if (!order.cooking_started_at || !order.cooking_completed_at) return null;
+  return Math.max(1, Math.round((new Date(order.cooking_completed_at) - new Date(order.cooking_started_at)) / 60000));
+};
+
 const CookDurationCell = ({ order }) => {
   const elapsed = useCookTimer(order);
+  const estimate = order.estimated_cooking_minutes || 20;
   if (order.status === 'start_cooking' && order.cooking_started_at) {
     const m = Math.floor(elapsed / 60), s = elapsed % 60;
+    const over = elapsed > estimate * 60;
     return (
-      <span className="flex items-center gap-1 text-orange-400 font-black text-[11px]">
-        <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block" />
+      <span className={`flex items-center gap-1 font-black text-[11px] ${over ? 'text-red-400' : 'text-orange-400'}`}>
+        <span className={`w-1.5 h-1.5 rounded-full animate-pulse inline-block ${over ? 'bg-red-400' : 'bg-orange-400'}`} />
         {String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}
+        <span className="text-[9px] text-text-muted font-bold" title="Chef's ETA">/ {estimate}m</span>
       </span>
     );
   }
-  if ((order.status === 'completed_cooking' || order.status === 'served' || order.status === 'paid')
-      && order.cooking_started_at && order.cooking_completed_at) {
-    const mins = Math.round((new Date(order.cooking_completed_at) - new Date(order.cooking_started_at)) / 60000);
-    return <span className="text-green-400 font-bold text-[11px]">✓ {mins}m</span>;
+  const mins = getCookMins(order);
+  if (['completed_cooking', 'served', 'paid'].includes(order.status) && mins != null) {
+    return (
+      <span className="text-green-400 font-bold text-[11px]" title="Time the chef took to cook">
+        👨‍🍳 {mins}m
+      </span>
+    );
   }
   return <span className="text-text-muted text-[11px]">—</span>;
+};
+
+// ─── Chef Prep-Time Adjuster (−10 / +10 min while cooking) ───────────────────
+const ChefPrepTime = ({ order, onEstimate }) => {
+  const elapsed = useCookTimer(order);
+  const [busy, setBusy] = useState(false);
+  const estimate = order.estimated_cooking_minutes || 20;
+  const startedMs = order.cooking_started_at ? new Date(order.cooking_started_at).getTime() : null;
+  // Always render for a cooking order — older orders may have no cooking_started_at stamp
+  const etaMs = startedMs ? startedMs + estimate * 60000 : null;
+  const remainingSec = startedMs ? Math.round(estimate * 60 - elapsed) : null;
+  const overdue = remainingSec != null && remainingSec < 0;
+
+  const nudge = async (delta) => {
+    if (busy || !onEstimate) return;
+    setBusy(true);
+    try { await onEstimate(order._id || order.id, delta); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 space-y-2 ${overdue ? 'bg-red-500/10 border-red-500/40' : 'bg-orange-500/10 border-orange-500/30'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-black uppercase tracking-widest text-text-muted flex items-center gap-1">
+          <Timer size={11} /> Prep Time
+        </span>
+        <span className={`text-[10px] font-black ${overdue ? 'text-red-400' : 'text-orange-400'}`}>
+          {remainingSec == null
+            ? 'Cooking'
+            : overdue
+              ? (-remainingSec >= 3600 ? `${Math.floor(-remainingSec / 3600)}h over` : `+${Math.ceil(-remainingSec / 60)}m over`)
+              : `${Math.ceil(remainingSec / 60)}m left`}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={() => nudge(-10)} disabled={busy || estimate <= 5}
+          className="w-14 h-10 shrink-0 rounded-xl bg-white/5 border border-white/15 text-white font-black text-[11px] hover:bg-white/10 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+          −10
+        </button>
+        <div className="flex-1 text-center">
+          <p className="text-xl font-black text-white leading-none">{estimate}<span className="text-[10px] text-text-muted font-bold"> min</span></p>
+          <p className="text-[9px] text-text-muted font-bold mt-1">
+            {etaMs ? `ETA ${new Date(etaMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'ETA from start'}
+          </p>
+        </div>
+        <button onClick={() => nudge(10)} disabled={busy || estimate >= 240}
+          className="w-14 h-10 shrink-0 rounded-xl bg-white/5 border border-white/15 text-white font-black text-[11px] hover:bg-white/10 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+          +10
+        </button>
+      </div>
+      <div className="flex items-center justify-between text-[9px] font-bold text-text-muted">
+        <span>Elapsed {Math.floor(elapsed / 60)}m {String(elapsed % 60).padStart(2, '0')}s</span>
+        <span className="uppercase tracking-widest">Adjust in 10-min steps</span>
+      </div>
+    </div>
+  );
+};
+
+// ─── Cook-time badge for waiters (their My Orders list) ─────────────────────
+const CookTimeBadge = ({ order, className = '' }) => {
+  const estimate = order.estimated_cooking_minutes || 20;
+  if (order.status === 'start_cooking' && order.cooking_started_at) {
+    return (
+      <span className={`inline-flex items-center gap-1 text-[10px] font-black text-orange-400 ${className}`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block" />
+        Cooking · ETA {estimate}m
+      </span>
+    );
+  }
+  const mins = getCookMins(order);
+  if (mins != null) {
+    return (
+      <span className={`inline-flex items-center gap-1 text-[10px] font-black text-green-400 ${className}`} title="Time the chef took to cook">
+        👨‍🍳 Chef took {mins} min
+      </span>
+    );
+  }
+  return null;
+};
+
+// ─── Order Detail Card (click an order's items to inspect them) ──────────────
+const DetailRow = ({ label, value, className = '' }) => (
+  <div className="flex items-center justify-between gap-3">
+    <span className="text-[11px] text-text-muted">{label}</span>
+    <span className={`text-[11px] font-bold ${className || 'text-white'}`}>{value}</span>
+  </div>
+);
+
+const InfoTile = ({ icon: Icon, label, value, className = '' }) => (
+  <div className={`bg-white/5 rounded-2xl px-3 py-2.5 ${className}`}>
+    <p className="text-[8px] font-black uppercase tracking-widest text-text-muted flex items-center gap-1 mb-1">
+      {Icon && <Icon size={10} />} {label}
+    </p>
+    <p className="text-[11px] font-bold text-white break-words">{value}</p>
+  </div>
+);
+
+const OrderDetailModal = ({ order, onClose }) => {
+  if (!order) return null;
+  const items = order.items || [];
+  const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const fmt = (d) => (d ? new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+  const cookMins = getCookMins(order);
+  const estimate = order.estimated_cooking_minutes || 20;
+  const subtotal = order.subtotal || items.reduce((s, i) => s + (i.price ?? i.unit_price ?? 0) * (i.quantity || 1), 0);
+  const discounts = (order.coupon_discount || 0) + (order.gift_card_discount || 0) + (order.tier_discount || 0);
+  const contactName = order.customer_name || order.customerName || 'Walk-in Guest';
+  const contactPhone = order.customer_phone || '';
+  const contactEmail = order.customer_email || '';
+  // One clear location label — table for dine-in, mode for delivery/pickup
+  const placeLabel = order.order_type === 'delivery'
+    ? '🚴 Home Delivery'
+    : ['pickup', 'takeaway'].includes(order.order_type) ? '📦 Takeaway'
+    : (order.table_number ? formatTableLabel(order.table_number) : 'Dine-In');
+
+  return (
+    <MotionDiv initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[9998] flex items-center justify-center p-3 sm:p-4"
+      onClick={onClose}>
+      <MotionDiv initial={{ scale: 0.95, y: 14 }} animate={{ scale: 1, y: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#161616] border border-white/10 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+
+        {/* Header */}
+        <div className="sticky top-0 bg-[#161616] border-b border-white/10 px-5 py-4 flex items-start justify-between gap-3 z-10">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-lg font-black text-white">{order.order_number || 'Order'}</h3>
+              <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase border ${STATUS_COLORS[order.status] || 'bg-white/5 text-text-muted border-white/10'}`}>
+                {STATUS_LABELS[order.status] || order.status}
+              </span>
+            </div>
+            <p className="text-[11px] text-text-muted mt-1">
+              {placeLabel}
+              {order.spiceness ? ` · 🌶 ${order.spiceness}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-text-muted hover:text-white transition-all shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Items */}
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-2">
+              Items ({items.reduce((a, i) => a + (i.quantity || 1), 0)})
+            </p>
+            <div className="bg-white/5 rounded-2xl divide-y divide-white/5">
+              {items.length === 0 && <p className="text-xs text-text-muted px-4 py-3">No items recorded</p>}
+              {items.map((item, i) => {
+                const price = item.price ?? item.unit_price ?? 0;
+                const qty = item.quantity || 1;
+                return (
+                  <div key={i} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">{item.name}</p>
+                      <p className="text-[10px] text-text-muted">{qty} × {money(price)}</p>
+                    </div>
+                    <span className="text-sm font-black text-primary shrink-0">{money(price * qty)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Money */}
+          <div className="bg-white/5 rounded-2xl px-4 py-3 space-y-1.5">
+            <DetailRow label="Subtotal" value={money(subtotal)} />
+            {discounts > 0 && <DetailRow label="Discounts" value={`−${money(discounts)}`} className="text-green-400" />}
+            {(order.delivery_fee || 0) > 0 && <DetailRow label="Delivery fee" value={money(order.delivery_fee)} />}
+            <div className="flex items-center justify-between pt-1.5 border-t border-white/10">
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">Total</span>
+              <span className="text-base font-black text-primary">{money(order.total)}</span>
+            </div>
+          </div>
+
+          {/* Contact + staff */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <InfoTile icon={User} label="Customer" value={contactName} />
+            <InfoTile icon={Phone} label="Phone" value={contactPhone || '—'} />
+            {contactEmail && <InfoTile icon={Mail} label="Email" value={contactEmail} className="col-span-2" />}
+            <InfoTile icon={UserCheck} label="Waiter" value={order.waiter_id?.name || (typeof order.waiter === 'string' && order.waiter) || '—'} />
+            <InfoTile icon={ChefHat} label="Chef" value={order.chef_id?.name || (typeof order.chef === 'string' && order.chef) || '—'} />
+          </div>
+
+          {/* Timings */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <InfoTile icon={Clock} label="Placed" value={fmt(order.created_at || order.timestamp)} />
+            <InfoTile icon={Play} label="Cooking started" value={fmt(order.cooking_started_at)} />
+            <InfoTile icon={CheckCircle2} label="Cooking done" value={fmt(order.cooking_completed_at)} />
+            <InfoTile icon={Timer} label="Cook time"
+              value={cookMins != null ? `👨‍🍳 ${cookMins} min` : order.status === 'start_cooking' ? `ETA ${estimate} min` : '—'} />
+          </div>
+
+          {/* Notes */}
+          {(order.delivery_address || order.pickup_extra_items || order.delivery_notes || order.order_type === 'delivery' || order.feedback) && (
+            <div className="space-y-2">
+              {order.delivery_address && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl px-3 py-2">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-blue-400 mb-1">Delivery Address</p>
+                  <p className="text-[11px] text-white/80">{order.delivery_address}</p>
+                </div>
+              )}
+              {order.pickup_extra_items && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl px-3 py-2">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-yellow-400 mb-1">📦 Customer Extras</p>
+                  <p className="text-[11px] text-white/80">{order.pickup_extra_items}</p>
+                </div>
+              )}
+              {order.order_type === 'delivery' && (
+                <div className="bg-white/5 rounded-2xl px-3 py-2">
+                  <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${order.knock_bell === false ? 'text-purple-400' : 'text-blue-400'}`}>
+                    {order.knock_bell === false ? '🤫 Do Not Disturb' : '🔔 Ring Bell / Knock'}
+                  </p>
+                  {order.delivery_notes && <p className="text-[11px] text-white/80">{order.delivery_notes}</p>}
+                </div>
+              )}
+              {order.feedback && (
+                <div className="bg-white/5 rounded-2xl px-3 py-2">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-text-muted mb-1">
+                    Feedback{order.rating ? ` · ${'⭐'.repeat(order.rating)}` : ''}
+                  </p>
+                  <p className="text-[11px] text-white/80">{order.feedback}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button onClick={onClose}
+            className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-text-muted hover:bg-white/10 hover:text-white transition-all">
+            Close
+          </button>
+        </div>
+      </MotionDiv>
+    </MotionDiv>
+  );
 };
 
 // ─── Universal Confirm Dialog ─────────────────────────────────────────────────
@@ -432,6 +689,8 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   const waiterStatuses  = ['served', 'paid'];
   // Manager/owner cannot start or complete cooking — that's chef/waiter only
   const managerStatuses  = ['dispatched', 'served', 'paid', 'cancelled'];
+  // Tap an order's items to inspect the full order card
+  const [detailOrder, setDetailOrder] = useState(null);
 
   // Delivery waiter = waiter with no assigned tables
   const isDeliveryWaiter = user.role === 'waiter' && (!waiterTableNumbers || waiterTableNumbers.length === 0);
@@ -566,7 +825,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             const total = typeof ord.total === 'number' ? ord.total : 0;
             const inZone = isWaiterOrderInZone(ord);
             return (
-              <tr key={id} className={`hover:bg-white/3 transition-all group ${user.role === 'waiter' && !inZone ? 'opacity-40' : ''}`}>
+              <tr key={id} className={`hover:bg-white/3 transition-all group ${user.role === 'waiter' && !inZone ? 'opacity-60' : ''}`}>
                 <td className="px-4 py-3">
                   <p className="font-bold text-white">{ord.order_number || `#${id?.slice(-6).toUpperCase()}`}</p>
                   <p className="text-text-muted text-[10px]">{ord.customerName || 'Walk-in'}</p>
@@ -596,10 +855,16 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                   </div>
                 </td>
                 <td className="px-4 py-3 max-w-[180px]">
-                  {items.slice(0, 2).map((item, i) => (
-                    <p key={i} className="text-white/70 truncate">{item.quantity}× {item.name}</p>
-                  ))}
-                  {items.length > 2 && <p className="text-primary">+{items.length - 2} more</p>}
+                  <button onClick={() => setDetailOrder(ord)} title="View order details"
+                    className="w-full text-left rounded-lg px-1 -mx-1 py-0.5 hover:bg-white/5 transition-all group/items">
+                    {items.slice(0, 2).map((item, i) => (
+                      <p key={i} className="text-white/70 truncate">{item.quantity}× {item.name}</p>
+                    ))}
+                    {items.length > 2 && <p className="text-primary">+{items.length - 2} more</p>}
+                    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary/60 group-hover/items:text-primary transition-colors">
+                      <Eye size={10} /> Details
+                    </span>
+                  </button>
                 </td>
                 <td className="px-4 py-3 font-bold text-primary">${total.toFixed(0)}</td>
                 <td className="px-4 py-3">
@@ -674,7 +939,11 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                   <CookDurationCell order={ord} />
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => setDetailOrder(ord)} title="View order details"
+                      className="p-1.5 text-text-muted hover:text-white hover:bg-white/10 border border-white/10 rounded-lg transition-all">
+                      <Eye size={13} />
+                    </button>
                     {/* pending_confirmation: Accept / Reject (owner + manager + dine-in waiter for their tables) */}
                     {ord.status === 'pending_confirmation' && onConfirmOrder && (() => {
                       const isOwnerManager = ['owner', 'manager'].includes(user.role);
@@ -758,18 +1027,21 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
           )}
         </tbody>
       </table>
+      {detailOrder && <OrderDetailModal order={detailOrder} onClose={() => setDetailOrder(null)} />}
     </div>
   );
 };
 
 // ─── CHEF KITCHEN MODULE ─────────────────────────────────────────────────────
-const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
+const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients, onEstimate }) => {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState('active');
   const [localIngredients, setLocalIngredients] = useState(ingredients);
   const [stockMsg, setStockMsg] = useState('');
   const [reducingId, setReducingId] = useState(null);
   const [reduceQty, setReduceQty] = useState('');
+  // Tap an order's items to inspect the full order card
+  const [detailOrder, setDetailOrder] = useState(null);
 
   useEffect(() => { setLocalIngredients(ingredients); }, [ingredients]);
 
@@ -867,7 +1139,7 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
                 className={`rounded-3xl border p-6 space-y-4 ${isPending ? 'bg-yellow-500/5 border-yellow-500/30' : 'bg-orange-500/5 border-orange-500/30'}`}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Table {ord.table_number || 'Takeaway'}</p>
+                    <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">{ord.table_number ? formatTableLabel(ord.table_number) : 'Takeaway'}</p>
                     <h3 className="text-xl font-black text-white">{ord.order_number || `#${id?.slice(-5).toUpperCase()}`}</h3>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -879,18 +1151,32 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
                     )}
                   </div>
                 </div>
-                <div className="bg-white/5 rounded-2xl p-4 space-y-2">
+                <div
+                  onClick={() => setDetailOrder(ord)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailOrder(ord); }
+                  }}
+                  title="Tap to view order details"
+                  className="bg-white/5 hover:bg-white/10 border border-transparent hover:border-primary/30 rounded-2xl p-4 space-y-2 cursor-pointer transition-all group/items"
+                >
                   {(ord.items || []).map((item, i) => (
                     <div key={i} className="flex justify-between items-center">
                       <span className="text-sm text-white/80">{item.name}</span>
                       <span className="text-sm font-black text-primary">×{item.quantity}</span>
                     </div>
                   ))}
+                  <p className="text-[9px] font-black uppercase tracking-widest text-primary/60 group-hover/items:text-primary transition-colors flex items-center gap-1 pt-1">
+                    <Eye size={10} /> Tap for item details
+                  </p>
                 </div>
                 <div className="text-[10px] text-text-muted flex items-center justify-between">
                   <span><Clock size={10} className="inline mr-1" />{new Date(ord.created_at || ord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   {ord.cooking_started_at && <span>Started: {new Date(ord.cooking_started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                 </div>
+                {/* Prep time — chef can nudge the ETA up/down while cooking */}
+                {isCooking && <ChefPrepTime order={ord} onEstimate={onEstimate} />}
                 {/* Customer Requirements — pickup extras or delivery arrival preference */}
                 {(ord.order_type === 'pickup' && ord.pickup_extra_items) && (
                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2 flex flex-col gap-0.5">
@@ -933,6 +1219,9 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
                     <div className="w-full py-3 bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl text-xs font-black uppercase tracking-widest text-center">
                       ✓ Ready — Waiting for Service
                     </div>
+                  )}
+                  {ord.status === 'completed_cooking' && getCookMins(ord) != null && (
+                    <p className="text-[10px] text-green-400 font-bold text-center mt-2">👨‍🍳 Cooked in {getCookMins(ord)} min</p>
                   )}
                 </div>
               </MotionDiv>
@@ -987,6 +1276,7 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
           </div>
         </div>
       )}
+      {detailOrder && <OrderDetailModal order={detailOrder} onClose={() => setDetailOrder(null)} />}
     </div>
   );
 };
@@ -994,6 +1284,8 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
 // ─── CHEF ORDER HISTORY ───────────────────────────────────────────────────────
 const ChefOrderHistory = ({ user, allOrders }) => {
   const [period, setPeriod] = useState('today');
+  // Tap an order's items to inspect the full order card
+  const [detailOrder, setDetailOrder] = useState(null);
 
   // Filter from the global orders already in context — no separate API call needed.
   // Chef history = orders that are completed_cooking / served / paid (kitchen done).
@@ -1063,8 +1355,16 @@ const ChefOrderHistory = ({ user, allOrders }) => {
                   {STATUS_LABELS[ord.status] || ord.status}
                 </span>
               </div>
-              {/* All items prepared */}
-              <div className="bg-bg-main/50 rounded-xl p-3 space-y-1.5">
+              {/* All items prepared — tap to open the full detail card */}
+              <div
+                onClick={() => setDetailOrder(ord)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailOrder(ord); }
+                }}
+                title="Tap to view order details"
+                className="bg-bg-main/50 hover:bg-bg-main/80 border border-transparent hover:border-primary/30 rounded-xl p-3 space-y-1.5 cursor-pointer transition-all group/items">
                 <p className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2">Items Prepared</p>
                 {(ord.items || []).map((item, i) => (
                   <div key={i} className="flex justify-between items-center text-sm">
@@ -1075,6 +1375,9 @@ const ChefOrderHistory = ({ user, allOrders }) => {
                     </div>
                   </div>
                 ))}
+                <p className="text-[9px] font-black uppercase tracking-widest text-primary/60 group-hover/items:text-primary transition-colors flex items-center gap-1 pt-1">
+                  <Eye size={10} /> Tap for item details
+                </p>
               </div>
               {ord.cooking_started_at && ord.cooking_completed_at && (
                 <p className="text-[10px] text-text-muted mt-2">
@@ -1091,6 +1394,7 @@ const ChefOrderHistory = ({ user, allOrders }) => {
             </div>
           )}
         </div>
+      {detailOrder && <OrderDetailModal order={detailOrder} onClose={() => setDetailOrder(null)} />}
     </div>
   );
 };
@@ -1368,6 +1672,8 @@ const WaiterMyOrders = ({ user, allOrders, waiterTableNumbers }) => {
   const [period, setPeriod] = useState('today');
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  // Tap an order to inspect the full order card
+  const [detailOrder, setDetailOrder] = useState(null);
 
   // Filter from global orders in context — no separate API call needed.
   const orders = useMemo(() => {
@@ -1536,7 +1842,8 @@ const WaiterMyOrders = ({ user, allOrders, waiterTableNumbers }) => {
                       </span>
                     </div>
                     <p className="text-[11px] text-text-muted mt-0.5">
-                      Table {ord.table_number || '—'} · {ord.customerName || 'Walk-in'} · {(ord.items || []).reduce((a, i) => a + (i.quantity || 1), 0)} items
+                      {formatTableLabel(ord.table_number)} · {ord.customerName || 'Walk-in'} · {(ord.items || []).reduce((a, i) => a + (i.quantity || 1), 0)} items
+                      <CookTimeBadge order={ord} className="mt-1" />
                     </p>
                   </div>
                   <div className="text-right shrink-0">
@@ -1569,6 +1876,10 @@ const WaiterMyOrders = ({ user, allOrders, waiterTableNumbers }) => {
                         {ord.spiceness && (
                           <p className="text-[10px] text-text-muted">Spice: {ord.spiceness}</p>
                         )}
+                        <button onClick={() => setDetailOrder(ord)}
+                          className="w-full mt-2 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-text-muted hover:bg-primary/15 hover:border-primary/30 hover:text-primary transition-all flex items-center justify-center gap-1.5">
+                          <Eye size={12} /> View Full Details
+                        </button>
                       </div>
                     </motion.div>
                   )}
@@ -1583,6 +1894,7 @@ const WaiterMyOrders = ({ user, allOrders, waiterTableNumbers }) => {
             </div>
           )}
         </div>
+      {detailOrder && <OrderDetailModal order={detailOrder} onClose={() => setDetailOrder(null)} />}
     </div>
   );
 };
@@ -8736,6 +9048,7 @@ const navigate = useNavigate();
   const {
     orders, menu, ingredients,
     updateOrderStatus: ctxUpdateStatus, deleteOrder,
+    updateOrderEstimate: ctxUpdateEstimate,
     updateMenuStock, toggleMenuAvailability, updateIngredientStock,
     getFinancialMetrics, loadOrders,
   } = useOrders();
@@ -8872,6 +9185,10 @@ const navigate = useNavigate();
     await ctxUpdateStatus(id, status);
   }, [user.role, ctxUpdateStatus, orders]);
 
+  // Chef prep-time adjuster — nudge the ETA up/down in 10-minute steps
+  // (state is patched optimistically by the orders context, no full refetch)
+  const updateOrderEstimate = useCallback((id, delta) => ctxUpdateEstimate?.(id, delta), [ctxUpdateEstimate]);
+
   const isAdmin = ['owner', 'manager'].includes(user.role);
 
   // Wrap tab change to also clear staff profile view
@@ -8964,7 +9281,7 @@ const navigate = useNavigate();
             {activeTab === 'kitchen' && (
               <MotionDiv key="kitchen" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <ChefKitchenModule orders={orders} updateOrderStatus={updateOrderStatus} ingredients={ingredients} />
+                <ChefKitchenModule orders={orders} updateOrderStatus={updateOrderStatus} ingredients={ingredients} onEstimate={updateOrderEstimate} />
               </MotionDiv>
             )}
 
