@@ -107,7 +107,7 @@ const STATUS_TO_STEP = DINEIN_STATUS_STEP;
 
 // ── Live Order Tracker ─────────────────────────────────────────────────────────
 // inline=true → compact banner inside cart page; inline=false → full-page view
-const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, knockBell = true, inline = false, onGoToBooking }) => {
+const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, knockBell = true, inline = false, onGoToBooking, guest = false }) => {
   const navigate  = useNavigate();
   const { tableNumber } = useCart();
   // Keep a scanned table session alive so "Back to Menu" returns to /?table=N
@@ -130,12 +130,13 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
     if (!orderId) return;
     if (manual) setRefreshing(true);
     try {
-      const res = await ordersAPI.getOne(orderId);
+      // Guests have no token — use the public tracker endpoint
+      const res = guest ? await ordersAPI.track(orderId) : await ordersAPI.getOne(orderId);
       if (res?.data) setOrder(res.data);
       setLastRefresh(new Date());
     } catch {}
     finally { if (manual) setRefreshing(false); }
-  }, [orderId]);
+  }, [orderId, guest]);
 
   useEffect(() => {
     fetchOrder();
@@ -500,6 +501,12 @@ const Cart = () => {
   const [contactEmail,  setContactEmail]  = useState('');
   const [contactError,  setContactError]  = useState('');
 
+  // Guests ordering from a table QR never need an account — the table session
+  // is enough, and their name/phone are captured on the order itself.
+  const tableSession = String(tableNumber || '').trim();
+  const isGuest       = !user;
+  const guestCheckout = !user && !!tableSession;
+
   // The contact form can be dismissed with Escape as well as Cancel / ✕
   useEffect(() => {
     if (!showContact) return;
@@ -713,8 +720,9 @@ const Cart = () => {
     if (cart.length === 0) return;
     setOrderError('');
 
-    // Validate login
-    if (!user) { navigate('/auth'); return; }
+    // Guests may check out straight from their table QR; online orders still
+    // require an account so loyalty / history keep working.
+    if (!user && !guestCheckout) { navigate('/auth'); return; }
 
     // Validate table for dine-in
     if (orderMode === 'dinein' && !selectedTable) { setOrderError('Please select a table.'); return; }
@@ -725,9 +733,14 @@ const Cart = () => {
     // Validate payment method
     if (!paymentMethod) { setOrderError('Please select a payment method to continue.'); return; }
 
-    setContactName(user?.name || '');
-    setContactPhone(user?.phone || '');
-    setContactEmail(user?.email || '');
+    // Prefill: account details for members, remembered details for table guests
+    let remembered = {};
+    if (!user) {
+      try { remembered = JSON.parse(localStorage.getItem('bb_guest_contact') || '{}') || {}; } catch { remembered = {}; }
+    }
+    setContactName(user?.name || remembered.name || '');
+    setContactPhone(user?.phone || remembered.phone || '');
+    setContactEmail(user?.email || remembered.email || '');
     setContactError('');
     setShowContact(true);
   };
@@ -744,6 +757,10 @@ const Cart = () => {
 
     setContactError('');
     setShowContact(false);
+    // Remember a guest's details so their next order from the table is quicker
+    if (!user) {
+      try { localStorage.setItem('bb_guest_contact', JSON.stringify({ name, phone, email })); } catch {}
+    }
     await placeOrder({ name, phone, email });
   };
 
@@ -755,7 +772,7 @@ const Cart = () => {
         items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
         order_type:      orderMode === 'dinein' ? 'dine-in' : orderMode,
         table_number:    orderMode === 'dinein' ? selectedTable : undefined,
-        customer_id:     user?._id || user?.id,
+        customer_id:     isGuest ? undefined : (user?._id || user?.id),
         // Contact details captured in the form before placing the order
         customer_name:   contact.name  || undefined,
         customer_phone:  contact.phone || undefined,
@@ -778,7 +795,7 @@ const Cart = () => {
         } : {}),
       };
 
-      const res = await ordersAPI.create(payload);
+      const res = isGuest ? await ordersAPI.createGuest(payload) : await ordersAPI.create(payload);
       const orderId  = res.data?._id || res.data?.order?._id;
       const orderNum = res.data?.order_number || res.data?.order?.order_number || ('BOX-' + Date.now().toString().slice(-5));
 
@@ -838,7 +855,7 @@ const Cart = () => {
       <LiveOrderTracker orderId={placedOrderId} orderNumber={placedOrderNum}
         placedItems={placedItemsSnap} grandTotal={placedTotal}
         newCoupon={newCoupon} onNewOrder={handleNewOrder}
-        orderType={placedOrderType} knockBell={placedKnockBell} />
+        orderType={placedOrderType} knockBell={placedKnockBell} guest={isGuest} />
     );
   }
 
@@ -889,6 +906,7 @@ const Cart = () => {
                 newCoupon={newCoupon}
                 onNewOrder={handleNewOrder}
                 onGoToBooking={handleGoToBooking}
+                guest={isGuest}
               />
             )}
 
@@ -974,9 +992,17 @@ const Cart = () => {
                   <p className="text-lg font-bold">Your cart is empty</p>
                   <p className="text-text-muted text-sm mt-1">Add some flavors to get started</p>
                 </div>
-                <button onClick={() => navigate(menuHref)} className="mt-6 btn-primary px-10 py-4 rounded-full text-xs font-black uppercase tracking-widest inline-flex items-center gap-2">
-                  Browse Menu <ArrowRight size={14} />
-                </button>
+                <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button onClick={() => navigate(menuHref)} className="btn-primary px-10 py-4 rounded-full text-xs font-black uppercase tracking-widest inline-flex items-center gap-2">
+                    Browse Menu <ArrowRight size={14} />
+                  </button>
+                  {/* A table guest who reopens the cart keeps access to the order they just placed */}
+                  {placedOrderId && (
+                    <button onClick={() => setShowTracker(true)} className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-xs font-black uppercase tracking-widest inline-flex items-center gap-2 transition-all">
+                      <MapPin size={14} /> Track #{placedOrderNum}
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1092,7 +1118,8 @@ const Cart = () => {
                 </div>
               )}
 
-              {/* ── Gift Card ── */}
+              {/* ── Gift Card (members only — guests pay at the table) ── */}
+              {userId && (
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-muted">
                   <Gift size={14} /> Gift Card
@@ -1165,6 +1192,7 @@ const Cart = () => {
                   <p className="text-[10px] text-text-muted">💡 Use any amount — remaining balance stays on your card</p>
                 )}
               </div>
+              )}
 
               {/* Loyalty Tier Discount */}
               {loyaltyTier && userId && (
@@ -1182,9 +1210,10 @@ const Cart = () => {
                 </div>
               )}
 
-              {/* Order mode: Dine-In / Pickup / Delivery */}
+              {/* Order mode: Dine-In / Pickup / Delivery — table guests are dine-in only */}
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-4 space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Order Type</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">{isGuest ? 'Your Table' : 'Order Type'}</p>
+                {!isGuest && (
                 <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                   <button onClick={() => setOrderMode('dinein')}
                     className={'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ' + (orderMode === 'dinein' ? 'bg-primary text-white' : 'text-text-muted hover:text-white')}>
@@ -1199,6 +1228,7 @@ const Cart = () => {
                     <Truck size={13} /> Delivery
                   </button>
                 </div>
+                )}
 
                 {/* Table selection for dine-in */}
                 {orderMode === 'dinein' && (

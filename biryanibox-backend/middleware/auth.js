@@ -19,6 +19,22 @@ exports.protect = async (req, res, next) => {
   }
 };
 
+// ── optionalProtect: attach req.user when a valid token is sent ────────────
+// Used by public endpoints that guests may call (e.g. table-QR ordering).
+// A missing or invalid token is NOT an error — the request continues as a guest.
+exports.optionalProtect = async (req, res, next) => {
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+  if (!token) return next();
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id).select('-password_hash');
+  } catch (_) { /* invalid/expired token → treat as guest */ }
+  next();
+};
+
 // ── authorize: role check ─────────────────────────────────────────────────
 exports.authorize = (...roles) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {

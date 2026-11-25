@@ -24,6 +24,34 @@ export const tableDisplayName = (table) => {
   return (!isNaN(n) && String(n) === lbl.trim()) ? `Table ${n}` : lbl;
 };
 
+// Small live QR preview shown on each table card in the dashboard.
+// Clicking it opens the full modal (download PNG / print / copy link).
+export const TableQRThumb = ({ table, onOpen }) => {
+  const [src, setSrc] = useState('');
+  const url = table ? tableMenuUrl(table) : '';
+
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    QRCode.toDataURL(url, { width: 192, margin: 1, color: { dark: '#111111', light: '#ffffff' } })
+      .then(d => { if (!cancelled) setSrc(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [url]);
+
+  return (
+    <button type="button" onClick={onOpen} title={`${tableDisplayName(table)} QR — view / download`}
+      className="w-9 h-9 rounded-lg bg-white flex items-center justify-center overflow-hidden ring-1 ring-white/20 hover:ring-2 hover:ring-primary transition-all shrink-0 group/qr relative">
+      {src
+        ? <img src={src} alt={`${tableDisplayName(table)} QR code`} className="w-full h-full object-contain" />
+        : <QrIcon size={14} className="text-neutral-400" />}
+      <span className="absolute inset-0 bg-black/50 opacity-0 group-hover/qr:opacity-100 flex items-center justify-center transition-opacity">
+        <Download size={12} className="text-white" />
+      </span>
+    </button>
+  );
+};
+
 const TableQRModal = ({ table, onClose }) => {
   const [dataUrl, setDataUrl] = useState('');
   const [error,  setError]  = useState('');

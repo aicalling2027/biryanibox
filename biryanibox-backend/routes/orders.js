@@ -12,7 +12,7 @@ const Notification       = require('../models/Notification');
 const Delivery           = require('../models/Delivery');
 const ChefOrderAssignment = require('../models/ChefOrderAssignment');
 const { Resend } = require('resend');
-const { protect, authorize, requireCheckIn } = require('../middleware/auth');
+const { protect, optionalProtect, authorize, requireCheckIn } = require('../middleware/auth');
 
 // ── Email (Resend) ─────────────────────────────────────────────────────────
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -338,7 +338,35 @@ router.get('/', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/orders/:id ───────────────────────────────────────────────────
+// ── GET /api/orders/track/:id — public tracker for guest (table QR) orders ──
+// Returns only the fields the customer tracker needs — never prices breakdown
+// or staff data. Order ids are random ObjectIds, so they are not guessable.
+router.get('/track/:id', optionalProtect, async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.id))
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    const order = await Order.findById(req.params.id).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const items = await OrderItem.find({ order_id: order._id })
+      .select('name quantity unit_price').lean();
+    res.json({
+      success: true,
+      data: {
+        _id:          order._id,
+        order_number: order.order_number,
+        status:       order.status,
+        order_type:   order.order_type,
+        table_number: order.table_number,
+        total:        order.total,
+        customer_name: order.customer_name,
+        created_at:   order.created_at,
+        updated_at:   order.updated_at,
+        items,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', protect, async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
@@ -360,7 +388,9 @@ router.get('/:id', protect, async (req, res, next) => {
 });
 
 // ── POST /api/orders ───────────────────────────────────────────────────────
-router.post('/', protect, requireCheckIn, async (req, res, next) => {
+// Shared by the signed-in route (customers + staff POS) and the public
+// /guest route used by table-QR ordering.
+const createOrder = async (req, res, next) => {
   try {
     const { items, table_number, order_type, payment_method, spiceness,
             delivery_address, delivery_notes, distance_km, knock_bell, pickup_extra_items,
@@ -372,20 +402,27 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
             coupon_code,
           } = req.body;
 
+    // Guests (no token) can order from a table QR without signing in.
+    // Every other role keeps the existing behaviour.
+    const actor    = req.user || null;
+    const isGuest  = !actor;
+    const isCustomerRole = actor?.role === 'customer';
+
     // For customers: always use their own ID as customer_id; ignore any captain_id from body
     // For staff (POS): use the customer_id from body if provided
-    const customer_id = req.user.role === 'customer'
-      ? req.user._id
-      : (req.body.customer_id || null);
+    // For guests: no customer account is linked — contact details are stored on the order
+    const customer_id = isCustomerRole
+      ? actor._id
+      : (actor ? (req.body.customer_id || null) : null);
 
-    // captain_id: only trust it from staff, never from customers
-    const captain_id = req.user.role === 'customer' ? null : (req.body.captain_id || null);
+    // captain_id: only trust it from staff, never from customers/guests
+    const captain_id = (isCustomerRole || isGuest) ? null : (req.body.captain_id || null);
 
     // ── Customer contact details (name + phone required, email optional) ──────
     const contactName  = String(customer_name  || '').trim();
     const contactPhone = String(customer_phone || '').trim();
     const contactEmail = String(customer_email || '').trim();
-    if (req.user.role === 'customer') {
+    if (isCustomerRole || isGuest) {
       if (!contactName)
         return res.status(400).json({ success: false, message: 'Full name is required to place the order' });
       if (!contactPhone)
@@ -401,6 +438,13 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
     const needsAddress = isDelivery;
     if (needsAddress && (!delivery_address || !delivery_address.trim()))
       return res.status(400).json({ success: false, message: 'Delivery address is required for home delivery orders.' });
+
+    // Guests may only order dine-in from a table QR code.
+    if (isGuest && (isDelivery || isTakeaway || !table_number))
+      return res.status(403).json({
+        success: false,
+        message: 'Please scan the QR code on your table to place an order, or sign in to order online.',
+      });
 
     // Validate items
     for (const item of items) {
@@ -437,9 +481,7 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
       }
     }
 
-    // ── Apply discounts (only for authenticated customers; staff POS skips these) ──
-    // Cap each discount at the remaining amount to prevent negative totals
-    const isCustomer = req.user.role === 'customer';
+    const isCustomer = isCustomerRole;
     const couponDiscount = isCustomer
       ? +Math.max(0, Math.min(parseFloat(rawCouponDiscount) || 0, subtotal)).toFixed(2)
       : 0;
@@ -462,6 +504,15 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
       }
     }
 
+    // A guest's QR must point at a real table.
+    if (isGuest) {
+      const tableExists = resolvedTableNum
+        ? await RestaurantTable.findOne({ table_number: resolvedTableNum }).select('_id')
+        : null;
+      if (!tableExists)
+        return res.status(400).json({ success: false, message: 'Unknown table — please rescan the QR code on your table.' });
+    }
+
     // Auto-assign captain based on table
     let assignedCaptainId = captain_id;
     if (!assignedCaptainId && resolvedTableNum) {
@@ -469,8 +520,8 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
       if (tableRec?.captain_id) assignedCaptainId = tableRec.captain_id;
     }
     // If still no captain and the staff member placing the order IS a captain, assign them
-    if (!assignedCaptainId && req.user.role === 'captain') {
-      assignedCaptainId = req.user._id;
+    if (!assignedCaptainId && actor?.role === 'captain') {
+      assignedCaptainId = actor._id;
     }
 
     const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
@@ -577,7 +628,12 @@ router.post('/', protect, requireCheckIn, async (req, res, next) => {
 
     res.status(201).json({ success: true, data: { ...order.toObject(), items: createdItems } });
   } catch (err) { next(err); }
-});
+};
+
+// POST /api/orders — signed-in customers & staff (POS)
+router.post('/', protect, requireCheckIn, createOrder);
+// POST /api/orders/guest — table-QR ordering without an account
+router.post('/guest', optionalProtect, createOrder);
 
 // ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
 router.patch('/:id/confirm', protect, requireCheckIn, authorize('owner', 'manager', 'captain'), async (req, res, next) => {

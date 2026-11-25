@@ -21,7 +21,7 @@ import {
   menuAPI, cateringAPI, leavesAPI, deliveryAPI, budgetAPI, wasteAPI,
 } from '../services/api';
 import POS from '../components/POS';
-import TableQRModal from '../components/TableQR';
+import TableQRModal, { TableQRThumb } from '../components/TableQR';
 
 // ─── Auto-refresh hook ───────────────────────────────────────────────────────
 // silent=true means background auto-refresh — never shows loading spinner
@@ -2071,8 +2071,8 @@ const TableStatus = ({ user }) => {
             );
             return (
               <div key={t._id} className={`rounded-2xl border p-4 ${cfg.bg} relative overflow-hidden`}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xl font-black text-white">{
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-xl font-black text-white min-w-0 truncate">{
                     (() => {
                       const lbl = t.label || String(t.table_number || '');
                       const n = parseInt(lbl);
@@ -2080,10 +2080,14 @@ const TableStatus = ({ user }) => {
                     })()
                   }</p>
                   {isUpdating && <Loader size={14} className="animate-spin text-primary" />}
-                  <button onClick={() => openEdit(t)} title="Edit table"
-                    className="w-6 h-6 rounded-lg bg-white/10 hover:bg-primary text-white/60 hover:text-white flex items-center justify-center transition-all">
-                    <Edit2 size={12} />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Table QR is always available — view, download or print it */}
+                    <TableQRThumb table={t} onOpen={() => setQrTable(t)} />
+                    <button onClick={() => openEdit(t)} title="Edit table"
+                      className="w-6 h-6 rounded-lg bg-white/10 hover:bg-primary text-white/60 hover:text-white flex items-center justify-center transition-all">
+                      <Edit2 size={12} />
+                    </button>
+                  </div>
                 </div>
                 {t.capacity && <p className="text-[10px] text-text-muted mb-2">{t.capacity} seats</p>}
                 <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase mb-2 inline-block ${cfg.badge}`}>

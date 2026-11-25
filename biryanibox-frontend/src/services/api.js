@@ -102,6 +102,10 @@ export const ordersAPI = {
   getAll:        (params = '')       => request(`/orders${params}`),
   getOne:        (id)                => request(`/orders/${id}`),
   create:        (body)              => request('/orders',               { method: 'POST',  body: JSON.stringify(body) }),
+  // Table-QR ordering without an account (guest check-in)
+  createGuest:   (body)              => request('/orders/guest',         { method: 'POST',  body: JSON.stringify(body) }),
+  // Public tracker used by guest orders (no token required)
+  track:         (id)                => request(`/orders/track/${id}`),
   updateStatus:  (id, status)        => request(`/orders/${id}/status`,  { method: 'PATCH', body: JSON.stringify({ status }) }),
   confirmOrder:  (id, action)        => request(`/orders/${id}/confirm`, { method: 'PATCH', body: JSON.stringify({ action }) }),
   rate:          (id, body)          => request(`/orders/${id}/rating`,  { method: 'PATCH', body: JSON.stringify(body) }),
