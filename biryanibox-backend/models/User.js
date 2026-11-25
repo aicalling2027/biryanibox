@@ -13,7 +13,7 @@ const UserSchema = new mongoose.Schema({
   password_hash:     { type: String },
   role:              {
     type: String,
-    enum: ['owner', 'manager', 'captain', 'chef', 'delivery', 'customer', 'servant', 'helper', 'cleaner', 'security'],
+    enum: ['owner', 'manager', 'waiter', 'chef', 'delivery', 'customer', 'servant', 'helper', 'cleaner', 'security'],
     default: 'customer'
   },
   avatar_url:        { type: String },

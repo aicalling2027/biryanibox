@@ -27,7 +27,7 @@ const Login = () => {
   const roles = [
     { id: 'owner',    label: 'Owner',   icon: ShieldCheck, color: 'text-yellow-400', access: 'Full Access',    redirect: '/dashboard' },
     { id: 'manager',  label: 'Manager', icon: User,        color: 'text-blue-400',   access: 'Ops Access',     redirect: '/dashboard' },
-    { id: 'captain',  label: 'Captain', icon: Lock,        color: 'text-green-400',  access: 'Table Access',   redirect: '/dashboard' },
+    { id: 'waiter',  label: 'Waiter', icon: Lock,        color: 'text-green-400',  access: 'Table Access',   redirect: '/dashboard' },
     { id: 'chef',     label: 'Chef',    icon: ChefHat,     color: 'text-orange-400', access: 'Kitchen Access', redirect: '/dashboard' },
     { id: 'delivery', label: 'Rider',   icon: Truck,       color: 'text-primary',    access: 'Rider Portal',   redirect: '/rider'     },
   ];
@@ -46,7 +46,7 @@ const Login = () => {
   const ROLE_PERMISSIONS = {
     owner:    ['owner'],
     manager:  ['manager'],
-    captain:  ['captain'],
+    waiter:  ['waiter'],
     chef:     ['chef'],
     delivery: ['delivery'],
   };

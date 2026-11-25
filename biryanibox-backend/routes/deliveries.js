@@ -92,7 +92,7 @@ router.get('/stats', protect, async (req, res, next) => {
 });
 
 // GET /api/deliveries/live-locations — for owner/manager live map
-router.get('/live-locations', protect, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
+router.get('/live-locations', protect, authorize('owner', 'manager', 'waiter'), async (req, res, next) => {
   try {
     const active = await Delivery.find({ status: { $in: ['assigned', 'picked_up', 'in_transit'] } })
       .populate('order_id', 'order_number total delivery_address')
@@ -171,13 +171,13 @@ router.post('/:id/skip', protect, authorize('delivery'), async (req, res, next) 
 });
 
 // PATCH /api/deliveries/:id/dispatch
-router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'), async (req, res, next) => {
+router.patch('/:id/dispatch', protect, authorize('waiter', 'manager', 'owner'), async (req, res, next) => {
   try {
     const delivery = await Delivery.findById(req.params.id).populate('order_id', 'order_number');
     if (!delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
     if (delivery.status !== 'assigned')
       return res.status(400).json({ success: false, message: 'Delivery must be accepted by a rider before dispatch.' });
-    delivery.captain_dispatched = true;
+    delivery.waiter_dispatched = true;
     delivery.dispatched_at = new Date();
     delivery.dispatched_by = req.user._id;
     await delivery.save();
@@ -201,7 +201,7 @@ router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'),
 });
 
 // PATCH /api/deliveries/:id/status
-router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', 'captain'), async (req, res, next) => {
+router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', 'waiter'), async (req, res, next) => {
   try {
     const { status, current_location } = req.body;
     const VALID = ['picked_up', 'in_transit', 'delivered', 'paid', 'failed'];
@@ -212,10 +212,10 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
     if (req.user.role === 'delivery' && delivery.driver_id?.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: 'Not your delivery' });
     // ENFORCE DISPATCH GATE for pickup
-    if (status === 'picked_up' && req.user.role === 'delivery' && !delivery.captain_dispatched) {
+    if (status === 'picked_up' && req.user.role === 'delivery' && !delivery.waiter_dispatched) {
       return res.status(403).json({
         success: false,
-        message: 'Cannot pick up yet — waiting for captain/manager to dispatch this order. You will receive a notification when ready.',
+        message: 'Cannot pick up yet — waiting for waiter/manager to dispatch this order. You will receive a notification when ready.',
       });
     }
     delivery.status = status;
@@ -240,9 +240,9 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
       });
     }
     if (status === 'delivered') {
-      // Notify owner, manager AND the delivery captain so they can collect payment
+      // Notify owner, manager AND the delivery waiter so they can collect payment
       const notifyUsers = await User.find({
-        role: { $in: ['owner', 'manager', 'captain'] },
+        role: { $in: ['owner', 'manager', 'waiter'] },
         is_active: true,
       });
       const orderNum = delivery.order_id?.order_number || delivery.order_id || 'unknown';

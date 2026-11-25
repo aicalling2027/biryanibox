@@ -7,7 +7,7 @@ const { protect, authorize } = require('../middleware/auth');
 // All non-customer, non-owner staff roles a manager/owner can create
 const SUPPORT_ROLES = ['servant', 'helper', 'cleaner', 'security'];
 // 'delivery' added so manager can list, create, and delete riders
-const MANAGER_ROLES = ['captain', 'chef', 'delivery', ...SUPPORT_ROLES];
+const MANAGER_ROLES = ['waiter', 'chef', 'delivery', ...SUPPORT_ROLES];
 const OWNER_ROLES   = ['manager', ...MANAGER_ROLES];
 
 // Helper: check if requester can manage target role
@@ -17,8 +17,8 @@ const canManage = (requesterRole, targetRole) => {
   return false;
 };
 
-// GET /api/users — captain has read-only access for Riders Hub
-router.get('/', protect, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
+// GET /api/users — waiter has read-only access for Riders Hub
+router.get('/', protect, authorize('owner', 'manager', 'waiter'), async (req, res, next) => {
   try {
     const { role } = req.query;
     const filter = {};
@@ -27,8 +27,8 @@ router.get('/', protect, authorize('owner', 'manager', 'captain'), async (req, r
     if (req.user.role === 'manager') {
       filter.role = { $in: role ? [role].filter(r => MANAGER_ROLES.includes(r)) : MANAGER_ROLES };
     }
-    // Captain: read-only — can only see delivery riders for Riders Hub
-    if (req.user.role === 'captain') {
+    // Waiter: read-only — can only see delivery riders for Riders Hub
+    if (req.user.role === 'waiter') {
       filter.role = 'delivery';
     }
     // Owner: can see everyone including customers — no filter override

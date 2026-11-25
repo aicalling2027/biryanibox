@@ -43,9 +43,9 @@ exports.authorize = (...roles) => (req, res, next) => {
   next();
 };
 
-// ── requireCheckIn: staff (manager/captain/chef/delivery) must be checked in
+// ── requireCheckIn: staff (manager/waiter/chef/delivery) must be checked in
 // Owner is EXEMPT from check-in.
-const CHECK_IN_ROLES = ['manager', 'captain', 'chef', 'delivery'];
+const CHECK_IN_ROLES = ['manager', 'waiter', 'chef', 'delivery'];
 
 exports.requireCheckIn = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ success: false, message: 'Not authorized' });

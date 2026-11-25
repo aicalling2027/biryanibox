@@ -4,7 +4,7 @@ const AnnouncementSchema = new mongoose.Schema({
   title:          { type: String, required: true, maxlength: 200 },
   message:        { type: String, required: true, maxlength: 2000 },
   priority:       { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal' },
-  target_roles:   [{ type: String, enum: ['owner', 'manager', 'captain', 'chef', 'customer'] }],
+  target_roles:   [{ type: String, enum: ['owner', 'manager', 'waiter', 'chef', 'customer'] }],
   is_active:      { type: Boolean, default: true },
   created_by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // Scheduling

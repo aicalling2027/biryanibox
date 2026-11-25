@@ -27,7 +27,7 @@ const LoginGuard = ({ children }) => {
   if (user) {
     // Already logged in — send to the right place
     if (user.role === 'delivery') return <Navigate to="/rider"     replace />;
-    if (['owner','manager','captain','chef'].includes(user.role))
+    if (['owner','manager','waiter','chef'].includes(user.role))
                                    return <Navigate to="/dashboard" replace />;
     // Customer logged in — send to profile
     return <Navigate to="/profile" replace />;
@@ -70,7 +70,7 @@ function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute allowedRoles={['owner', 'manager', 'captain', 'chef']}>
+            <ProtectedRoute allowedRoles={['owner', 'manager', 'waiter', 'chef']}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -78,7 +78,7 @@ function App() {
         <Route
           path="/dashboard/*"
           element={
-            <ProtectedRoute allowedRoles={['owner', 'manager', 'captain', 'chef']}>
+            <ProtectedRoute allowedRoles={['owner', 'manager', 'waiter', 'chef']}>
               <Dashboard />
             </ProtectedRoute>
           }

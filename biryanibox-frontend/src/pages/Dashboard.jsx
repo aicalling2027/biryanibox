@@ -56,41 +56,41 @@ const STATUS_LABELS = {
 };
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
-const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, captainTableNumbers, open, onClose }) => {
+const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, waiterTableNumbers, open, onClose }) => {
   // No hooks that subscribe to external contexts — keeps memo effective
   // logout and navigate are passed in as a stable callback from Dashboard
 
-  // A captain with no assigned tables is a delivery/pickup captain
-  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
+  // A waiter with no assigned tables is a delivery/pickup waiter
+  const isDeliveryWaiter = user.role === 'waiter' && (!waiterTableNumbers || waiterTableNumbers.length === 0);
 
   const allItems = [
     { id: 'overview',      label: 'Command Hub',      icon: PieChart,        roles: ['owner', 'manager'] },
-    { id: 'pos',           label: 'Order Booking',    icon: OrderIcon,       roles: ['owner', 'manager', 'captain'] },
-    { id: 'orders',        label: 'Orders',      icon: Monitor,         roles: ['owner', 'manager', 'captain', 'chef'] },
+    { id: 'pos',           label: 'Order Booking',    icon: OrderIcon,       roles: ['owner', 'manager', 'waiter'] },
+    { id: 'orders',        label: 'Orders',      icon: Monitor,         roles: ['owner', 'manager', 'waiter', 'chef'] },
     { id: 'kitchen',       label: 'My Kitchen',       icon: ChefHat,         roles: ['chef'] },
     { id: 'menu',          label: 'Menu Master',      icon: FileText,        roles: ['owner', 'manager'] },
-    { id: 'tables',        label: 'Table Status',     icon: LayoutDashboard, roles: ['owner', 'manager', 'captain'] },
-    { id: 'reservations',  label: 'Reservations',     icon: Calendar,        roles: ['owner', 'manager', 'captain'] },
+    { id: 'tables',        label: 'Table Status',     icon: LayoutDashboard, roles: ['owner', 'manager', 'waiter'] },
+    { id: 'reservations',  label: 'Reservations',     icon: Calendar,        roles: ['owner', 'manager', 'waiter'] },
     { id: 'catering',      label: 'Catering Orders',  icon: Utensils,        roles: ['owner', 'manager'] },
     { id: 'feedback',      label: 'Feedback Box',     icon: MessageSquare,   roles: ['owner', 'manager'] },
-    { id: 'announcements', label: 'Announcements',    icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
-    { id: 'leaves',        label: 'Leave Module',     icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
+    { id: 'announcements', label: 'Announcements',    icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'waiter'] },
+    { id: 'leaves',        label: 'Leave Module',     icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'waiter'] },
     { id: 'shifts',        label: 'Shift Logs',       icon: UserCheck,       roles: ['owner', 'manager'] },
     { id: 'staffmgmt',     label: 'Staff Mgmt',       icon: Users,           roles: ['owner', 'manager'] },
-    { id: 'riders',        label: 'Riders Hub',       icon: Truck,           roles: ['owner', 'manager', 'captain'] },
+    { id: 'riders',        label: 'Riders Hub',       icon: Truck,           roles: ['owner', 'manager', 'waiter'] },
     { id: 'customers',     label: 'Customers',        icon: Users,           roles: ['owner'] },
     { id: 'finance',       label: 'Finance Center',   icon: DollarSign,      roles: ['owner', 'manager'] },
-    { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['captain'] },
-    { id: 'captain_bonus', label: 'My Bonus',          icon: Award,           roles: ['captain'] },
+    { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['waiter'] },
+    { id: 'waiter_bonus', label: 'My Bonus',          icon: Award,           roles: ['waiter'] },
     { id: 'chef_orders',   label: 'Order History',    icon: ClipboardList,   roles: ['chef'] },
     { id: 'waste_chef',    label: 'Waste Log',        icon: Trash2,          roles: ['chef'] },
-    { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
+    { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'waiter', 'chef'] },
   ];
 
-  // Hide Riders Hub from dine-in captains (those with assigned tables)
+  // Hide Riders Hub from dine-in waiters (those with assigned tables)
   const items = allItems.filter(i => {
     if (!i.roles.includes(user.role)) return false;
-    if (i.id === 'riders' && user.role === 'captain' && !isDeliveryCaptain) return false;
+    if (i.id === 'riders' && user.role === 'waiter' && !isDeliveryWaiter) return false;
     return true;
   });
 
@@ -427,14 +427,14 @@ const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelTe
 };
 
 
-const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
+const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, waiterTableNumbers }) => {
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
-  const captainStatuses  = ['served', 'paid'];
-  // Manager/owner cannot start or complete cooking — that's chef/captain only
+  const waiterStatuses  = ['served', 'paid'];
+  // Manager/owner cannot start or complete cooking — that's chef/waiter only
   const managerStatuses  = ['dispatched', 'served', 'paid', 'cancelled'];
 
-  // Delivery captain = captain with no assigned tables
-  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
+  // Delivery waiter = waiter with no assigned tables
+  const isDeliveryWaiter = user.role === 'waiter' && (!waiterTableNumbers || waiterTableNumbers.length === 0);
 
   // Extract numeric table number from any format: "1" → 1, "Table 1" → 1, "Table 7" → 7
   const parseTableNum = (raw) => {
@@ -443,16 +443,16 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     return match ? parseInt(match[0]) : NaN;
   };
 
-  // Is this order in the captain's zone?
-  const isCaptainOrderInZone = (order) => {
-    if (user.role !== 'captain') return true; // non-captains always in zone
-    if (isDeliveryCaptain) {
-      // Delivery captain: delivery/pickup/takeaway orders are their zone
+  // Is this order in the waiter's zone?
+  const isWaiterOrderInZone = (order) => {
+    if (user.role !== 'waiter') return true; // non-waiters always in zone
+    if (isDeliveryWaiter) {
+      // Delivery waiter: delivery/pickup/takeaway orders are their zone
       return ['delivery', 'pickup', 'takeaway'].includes(order.order_type);
     }
-    // Dine-in captain: compare table numbers
+    // Dine-in waiter: compare table numbers
     const orderTNum = parseTableNum(order.table_number);
-    return !isNaN(orderTNum) && captainTableNumbers.includes(orderTNum);
+    return !isNaN(orderTNum) && waiterTableNumbers.includes(orderTNum);
   };
 
   // Order-type-aware transitions:
@@ -509,15 +509,15 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     const isDelivery = order.order_type === 'delivery';
     const isPickup   = ['pickup', 'takeaway'].includes(order.order_type);
     if (user.role === 'chef') return chefStatuses.includes(next);
-    if (user.role === 'captain') {
-      if (isDeliveryCaptain) {
-        // Delivery captain: ONLY dispatch + paid actions — chef handles cooking
+    if (user.role === 'waiter') {
+      if (isDeliveryWaiter) {
+        // Delivery waiter: ONLY dispatch + paid actions — chef handles cooking
         if (isDelivery) return ['dispatched'].includes(next); // delivery orders: dispatch only (rider marks paid)
         if (isPickup)   return ['dispatched', 'paid'].includes(next); // pickup: at counter + completed
         return false;
       }
-      // Dine-in captain: served + paid only (chef handles cooking)
-      return captainStatuses.includes(next);
+      // Dine-in waiter: served + paid only (chef handles cooking)
+      return waiterStatuses.includes(next);
     }
     if (['manager', 'owner'].includes(user.role)) {
       // For delivery orders: managers/owners can dispatch; rider handles paid
@@ -564,9 +564,9 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             const id = ord._id || ord.id;
             const items = ord.items || [];
             const total = typeof ord.total === 'number' ? ord.total : 0;
-            const inZone = isCaptainOrderInZone(ord);
+            const inZone = isWaiterOrderInZone(ord);
             return (
-              <tr key={id} className={`hover:bg-white/3 transition-all group ${user.role === 'captain' && !inZone ? 'opacity-40' : ''}`}>
+              <tr key={id} className={`hover:bg-white/3 transition-all group ${user.role === 'waiter' && !inZone ? 'opacity-40' : ''}`}>
                 <td className="px-4 py-3">
                   <p className="font-bold text-white">{ord.order_number || `#${id?.slice(-6).toUpperCase()}`}</p>
                   <p className="text-text-muted text-[10px]">{ord.customerName || 'Walk-in'}</p>
@@ -587,8 +587,8 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                         return '—';
                       })()}
                     </span>
-                    {/* Zone indicator for captains */}
-                    {user.role === 'captain' && (
+                    {/* Zone indicator for waiters */}
+                    {user.role === 'waiter' && (
                       inZone
                         ? <span className="text-[8px] font-black text-green-400 uppercase tracking-widest">✓ Your Zone</span>
                         : <span className="text-[8px] font-black text-red-400/60 uppercase tracking-widest">🔒 Other Zone</span>
@@ -610,9 +610,9 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                 <td className="px-4 py-3">
                   {(() => {
                     // served_by is set by backend when:
-                    //   dine-in  → status 'served'   (captain/manager/owner who clicked Serve)
-                    //   pickup   → status 'dispatched' (captain/manager/owner who clicked At Counter)
-                    //   delivery → status 'dispatched' (captain/manager/owner who clicked Dispatch)
+                    //   dine-in  → status 'served'   (waiter/manager/owner who clicked Serve)
+                    //   pickup   → status 'dispatched' (waiter/manager/owner who clicked At Counter)
+                    //   delivery → status 'dispatched' (waiter/manager/owner who clicked Dispatch)
                     const isDeliveryType = ['delivery','pickup','takeaway'].includes(ord.order_type);
                     const isDineIn = ord.order_type === 'dine-in';
 
@@ -621,22 +621,22 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                       ? ['served','paid'].includes(ord.status)
                       : ['dispatched','delivered','paid','in_transit'].includes(ord.status);
 
-                    // Priority: served_by (most accurate) → delivery.dispatched_by (delivery fallback) → captain_id (dine-in fallback)
-                    let captainName = null;
+                    // Priority: served_by (most accurate) → delivery.dispatched_by (delivery fallback) → waiter_id (dine-in fallback)
+                    let waiterName = null;
                     if (hasBeenServed) {
-                      captainName = ord.served_by?.name
+                      waiterName = ord.served_by?.name
                         || (isDeliveryType ? (ord.delivery?.dispatched_by?.name || null) : null)
-                        || (isDineIn ? (ord.captain_id?.name || null) : null);
+                        || (isDineIn ? (ord.waiter_id?.name || null) : null);
                     }
 
                     return (
                       <div className="flex items-center gap-1.5">
-                        {captainName ? (
+                        {waiterName ? (
                           <>
                             <div className="w-5 h-5 rounded-full overflow-hidden border border-primary/20 shrink-0">
-                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${captainName}`} alt="" />
+                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${waiterName}`} alt="" />
                             </div>
-                            <span className="text-white/70 text-[11px] font-bold">{captainName}</span>
+                            <span className="text-white/70 text-[11px] font-bold">{waiterName}</span>
                           </>
                         ) : (
                           <span className="text-white/20 text-[11px]">—</span>
@@ -675,12 +675,12 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
-                    {/* pending_confirmation: Accept / Reject (owner + manager + dine-in captain for their tables) */}
+                    {/* pending_confirmation: Accept / Reject (owner + manager + dine-in waiter for their tables) */}
                     {ord.status === 'pending_confirmation' && onConfirmOrder && (() => {
                       const isOwnerManager = ['owner', 'manager'].includes(user.role);
-                      const isDineInCaptain = user.role === 'captain' && !isDeliveryCaptain && ord.order_type === 'dine-in';
-                      const captainInZone = isDineInCaptain && isCaptainOrderInZone(ord);
-                      if (!isOwnerManager && !captainInZone) return null;
+                      const isDineInWaiter = user.role === 'waiter' && !isDeliveryWaiter && ord.order_type === 'dine-in';
+                      const waiterInZone = isDineInWaiter && isWaiterOrderInZone(ord);
+                      if (!isOwnerManager && !waiterInZone) return null;
                       return (
                         <>
                           <button onClick={() => onConfirmOrder(id, 'accept')}
@@ -734,8 +734,8 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                         </button>
                       );
                     })()}
-                    {/* Out-of-zone indicator for dine-in captains only */}
-                    {user.role === 'captain' && !inZone && !isDeliveryCaptain && canAdvance(ord) && (
+                    {/* Out-of-zone indicator for dine-in waiters only */}
+                    {user.role === 'waiter' && !inZone && !isDeliveryWaiter && canAdvance(ord) && (
                       <span className="text-[9px] text-text-muted px-2 py-1 bg-white/5 rounded-lg border border-white/10 uppercase tracking-widest">
                         🔒 Other Zone
                       </span>
@@ -1095,8 +1095,8 @@ const ChefOrderHistory = ({ user, allOrders }) => {
   );
 };
 
-// ─── CAPTAIN MY ORDERS ────────────────────────────────────────────────────────
-// ─── CAPTAIN BONUS MODULE ─────────────────────────────────────────────────────
+// ─── WAITER MY ORDERS ────────────────────────────────────────────────────────
+// ─── WAITER BONUS MODULE ─────────────────────────────────────────────────────
 const BONUS_TIERS = [
   { key: 'bronze', label: 'Bronze',   min: 0,    max: 500,  pct: 3,  color: 'text-amber-600',  bg: 'bg-amber-700/10', border: 'border-amber-700/30',   glow: 'shadow-amber-700/20',   icon: '🥉', badge: 'from-amber-700 to-amber-500' },
   { key: 'silver', label: 'Silver',   min: 500,  max: 1500, pct: 5,  color: 'text-slate-300',  bg: 'bg-slate-500/10', border: 'border-slate-500/30',   glow: 'shadow-slate-400/20',   icon: '🥈', badge: 'from-slate-500 to-slate-300' },
@@ -1106,13 +1106,13 @@ const BONUS_TIERS = [
 
 const getTier = (revenue) => BONUS_TIERS.find(t => revenue >= t.min && revenue < t.max) || BONUS_TIERS[0];
 
-const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
+const WaiterBonusModule = ({ user, allOrders, waiterTableNumbers }) => {
   const [period, setPeriod] = useState('monthly');
   const [showBreakdown, setShowBreakdown] = useState(false);
 
-  const isDeliveryCaptain = !captainTableNumbers || captainTableNumbers.length === 0;
+  const isDeliveryWaiter = !waiterTableNumbers || waiterTableNumbers.length === 0;
 
-  // Filter orders by period and captain zone
+  // Filter orders by period and waiter zone
   const zoneOrders = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
@@ -1123,13 +1123,13 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
     return (allOrders || []).filter(o => {
       if (o.status !== 'paid') return false;
       // Zone filter
-      if (isDeliveryCaptain) {
+      if (isDeliveryWaiter) {
         if (!['delivery','pickup','takeaway'].includes(o.order_type)) return false;
       } else {
         const rawT = String(o.table_number || '');
         const match = rawT.match(/\d+/);
         const tNum = match ? parseInt(match[0]) : NaN;
-        if (isNaN(tNum) || !captainTableNumbers.includes(tNum)) return false;
+        if (isNaN(tNum) || !waiterTableNumbers.includes(tNum)) return false;
       }
       // Period filter
       const ts = new Date(o.created_at || o.timestamp);
@@ -1139,7 +1139,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
       if (period === 'yearly')  return ts >= yearAgo;
       return true;
     });
-  }, [allOrders, period, captainTableNumbers, isDeliveryCaptain]);
+  }, [allOrders, period, waiterTableNumbers, isDeliveryWaiter]);
 
   const revenue    = zoneOrders.reduce((s, o) => s + (o.total || 0), 0);
   const tier       = getTier(revenue);
@@ -1151,11 +1151,11 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
   // All-time cumulative
   const allTimePaid = (allOrders || []).filter(o => {
     if (o.status !== 'paid') return false;
-    if (isDeliveryCaptain) return ['delivery','pickup','takeaway'].includes(o.order_type);
+    if (isDeliveryWaiter) return ['delivery','pickup','takeaway'].includes(o.order_type);
     const rawT = String(o.table_number || '');
     const match = rawT.match(/\d+/);
     const tNum = match ? parseInt(match[0]) : NaN;
-    return !isNaN(tNum) && captainTableNumbers.includes(tNum);
+    return !isNaN(tNum) && waiterTableNumbers.includes(tNum);
   });
   const allTimeRevenue = allTimePaid.reduce((s, o) => s + (o.total || 0), 0);
   const allTimeTier    = getTier(allTimeRevenue);
@@ -1171,7 +1171,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
             <Award size={28} className="text-yellow-400" />My Bonus
           </h2>
           <p className="text-text-muted text-sm mt-1">
-            {isDeliveryCaptain ? 'Delivery & Pickup orders' : `Tables ${captainTableNumbers.map(n => `Table ${n}`).join(', ')}`}
+            {isDeliveryWaiter ? 'Delivery & Pickup orders' : `Tables ${waiterTableNumbers.map(n => `Table ${n}`).join(', ')}`}
           </p>
         </div>
         <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
@@ -1190,7 +1190,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
             <div className="flex items-center gap-3 mb-2">
               <span className="text-5xl">{tier.icon}</span>
               <div>
-                <p className={`text-xs font-black uppercase tracking-widest ${tier.color}`}>{tier.label} Tier Captain</p>
+                <p className={`text-xs font-black uppercase tracking-widest ${tier.color}`}>{tier.label} Tier Waiter</p>
                 <p className="text-[10px] text-text-muted">{tier.pct}% bonus rate · {periodLabel[period]}</p>
               </div>
             </div>
@@ -1364,7 +1364,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
   );
 };
 
-const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
+const WaiterMyOrders = ({ user, allOrders, waiterTableNumbers }) => {
   const [period, setPeriod] = useState('today');
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -1376,23 +1376,23 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
     const weekAgo  = new Date(now); weekAgo.setDate(now.getDate() - 7);
     const monthAgo = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
 
-    const myTables = captainTableNumbers || [];
-    const isDeliveryCaptain = myTables.length === 0;
+    const myTables = waiterTableNumbers || [];
+    const isDeliveryWaiter = myTables.length === 0;
 
     return (allOrders || []).filter(o => {
       // Zone filter
-      if (isDeliveryCaptain) {
+      if (isDeliveryWaiter) {
         if (!['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return false;
       } else {
-        // Dine-in captain: match by table number OR by captain_id OR by served_by email
+        // Dine-in waiter: match by table number OR by waiter_id OR by served_by email
         const tNum = parseInt(String(o.table_number || '').match(/\d+/)?.[0] || '0') || 0;
         const tableMatch = tNum > 0 && myTables.includes(tNum);
-        const captainIdMatch = o.captain_id && (
-          (o.captain_id._id || o.captain_id) === user._id ||
-          (o.captain_id._id || o.captain_id) === (user.id)
+        const waiterIdMatch = o.waiter_id && (
+          (o.waiter_id._id || o.waiter_id) === user._id ||
+          (o.waiter_id._id || o.waiter_id) === (user.id)
         );
         const emailMatch = o.served_by && user.email && o.served_by === user.email;
-        if (!tableMatch && !captainIdMatch && !emailMatch) return false;
+        if (!tableMatch && !waiterIdMatch && !emailMatch) return false;
       }
       const ts = new Date(o.created_at || o.timestamp);
       if (period === 'today')   return ts >= todayStart;
@@ -1400,7 +1400,7 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
       if (period === 'monthly') return ts >= monthAgo;
       return true;
     });
-  }, [allOrders, period, captainTableNumbers, user.email]);
+  }, [allOrders, period, waiterTableNumbers, user.email]);
 
   // Status sub-filter
   const filtered = useMemo(() => {
@@ -1438,11 +1438,11 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
           <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Orders</h2>
           <p className="text-text-muted text-sm mt-1">All orders you have served</p>
           {/* Zone badge */}
-          {captainTableNumbers && captainTableNumbers.length > 0 ? (
+          {waiterTableNumbers && waiterTableNumbers.length > 0 ? (
             <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-xl w-fit">
               <span className="text-green-400 text-sm">🪑</span>
               <span className="text-[10px] text-green-400 font-black uppercase tracking-widest">
-                Zone: {captainTableNumbers.map(n => `Table ${n}`).join(' · ')}
+                Zone: {waiterTableNumbers.map(n => `Table ${n}`).join(' · ')}
               </span>
             </div>
           ) : (
@@ -1593,17 +1593,17 @@ const TableStatus = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
   const [msg, setMsg] = useState({ text: '', type: '' });
-  const [isDeliveryCaptain, setIsDeliveryCaptain] = useState(false);
+  const [isDeliveryWaiter, setIsDeliveryWaiter] = useState(false);
   const [showAddTable, setShowAddTable] = useState(false);
-  const [addForm, setAddForm] = useState({ mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', captain_id: '' });
-  const [captains, setCaptains] = useState([]);
+  const [addForm, setAddForm] = useState({ mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', waiter_id: '' });
+  const [waiters, setWaiters] = useState([]);
   const [addingTable, setAddingTable] = useState(false);
   const [qrTable, setQrTable] = useState(null); // table whose QR modal is open
   const [editTable, setEditTable] = useState(null); // table being edited
-  const [editForm, setEditForm] = useState({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+  const [editForm, setEditForm] = useState({ label: '', capacity: 4, type: 'regular', waiter_id: '' });
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const isCaptain = user?.role === 'captain';
+  const isWaiter = user?.role === 'waiter';
   const isOwner = user?.role === 'owner';
   const isManager = user?.role === 'manager';
   const canAddTable = isOwner || isManager;
@@ -1613,15 +1613,15 @@ const TableStatus = ({ user }) => {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      if (isCaptain) {
+      if (isWaiter) {
         const res = await tablesAPI.getMyTables();
         const myTables = res.data || [];
         setTables(myTables);
-        setIsDeliveryCaptain(myTables.length === 0);
+        setIsDeliveryWaiter(myTables.length === 0);
       } else {
         const res = await tablesAPI.getAll();
         setTables(res.data || []);
-        setIsDeliveryCaptain(false);
+        setIsDeliveryWaiter(false);
       }
       try {
         const rRes = await reservationsAPI.getAll('?status=confirmed');
@@ -1629,15 +1629,15 @@ const TableStatus = ({ user }) => {
       } catch { setReservations([]); }
     } catch { setTables([]); }
     finally { if (!silent) setLoading(false); }
-  }, [isCaptain]);
+  }, [isWaiter]);
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(load, 20000);
 
-  // Load captains list for the "Add Table" form
+  // Load waiters list for the "Add Table" form
   useEffect(() => {
     if (canAddTable) {
-      usersAPI.getAll('?role=captain').then(r => setCaptains(r.data || [])).catch(() => setCaptains([]));
+      usersAPI.getAll('?role=waiter').then(r => setWaiters(r.data || [])).catch(() => setWaiters([]));
     }
   }, [canAddTable]);
 
@@ -1660,7 +1660,7 @@ const TableStatus = ({ user }) => {
   );
 
   // The add form starts on an available table (pick → QR) and can switch to "new"
-  const blankAddForm = { mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', captain_id: '' };
+  const blankAddForm = { mode: 'existing', table_id: '', label: '', capacity: 4, type: 'regular', waiter_id: '' };
 
   const formFromTable = (t) => ({
     mode: 'existing',
@@ -1668,7 +1668,7 @@ const TableStatus = ({ user }) => {
     label: t?.label || '',
     capacity: t?.capacity || 4,
     type: t?.type || 'regular',
-    captain_id: t?.captain_id?._id || '',
+    waiter_id: t?.waiter_id?._id || '',
   });
 
   const openAddTable = () => {
@@ -1690,7 +1690,7 @@ const TableStatus = ({ user }) => {
         label: addForm.label.trim(),
         capacity: parseInt(addForm.capacity) || 4,
         type: addForm.type,
-        captain_id: addForm.captain_id || undefined,
+        waiter_id: addForm.waiter_id || undefined,
       });
       setShowAddTable(false);
       setAddForm({ ...blankAddForm, mode: 'new' });
@@ -1718,7 +1718,7 @@ const TableStatus = ({ user }) => {
         const res = await tablesAPI.update(selectedAddTable._id, {
           capacity: parseInt(addForm.capacity) || selectedAddTable.capacity,
           type: addForm.type,
-          captain_id: addForm.captain_id || '',
+          waiter_id: addForm.waiter_id || '',
         });
         setShowAddTable(false);
         load();
@@ -1734,14 +1734,14 @@ const TableStatus = ({ user }) => {
     setQrTable(created);
   };
 
-  // Edit an existing table (label, capacity, type, captain)
+  // Edit an existing table (label, capacity, type, waiter)
   const openEdit = (t) => {
     setEditTable(t);
     setEditForm({
       label: t.label || String(t.table_number || ''),
       capacity: t.capacity || 4,
       type: t.type || 'regular',
-      captain_id: t.captain_id?._id || t.captain_id || '',
+      waiter_id: t.waiter_id?._id || t.waiter_id || '',
     });
   };
 
@@ -1755,7 +1755,7 @@ const TableStatus = ({ user }) => {
         label: editForm.label.trim(),
         capacity: parseInt(editForm.capacity) || 4,
         type: editForm.type,
-        captain_id: editForm.captain_id || '',
+        waiter_id: editForm.waiter_id || '',
       });
       setEditTable(null);
       load();
@@ -1774,7 +1774,7 @@ const TableStatus = ({ user }) => {
 
   const allStatuses = ['available', 'occupied', 'reserved', 'not_available'];
 
-  if (isDeliveryCaptain) {
+  if (isDeliveryWaiter) {
     return (
       <div className="space-y-6">
         <div>
@@ -1795,7 +1795,7 @@ const TableStatus = ({ user }) => {
           ))}
         </div>
         <div className="mt-4 bg-secondary/40 rounded-2xl border border-white/10 p-5">
-          <p className="text-xs text-text-muted font-bold uppercase tracking-widest mb-2">Your Captain ID</p>
+          <p className="text-xs text-text-muted font-bold uppercase tracking-widest mb-2">Your Waiter ID</p>
           <p className="text-white font-mono text-sm">CAP4-{user?._id?.slice(-8).toUpperCase()}</p>
           <p className="text-text-muted text-xs mt-1">Notifications for delivery/pickup orders are routed to you exclusively.</p>
         </div>
@@ -1811,7 +1811,7 @@ const TableStatus = ({ user }) => {
             <LayoutDashboard size={28} className="text-primary" />Table Status
           </h2>
           <p className="text-text-muted text-sm mt-1">
-            {isCaptain
+            {isWaiter
               ? `Your zone: ${tables.length} table${tables.length !== 1 ? 's' : ''} assigned`
               : 'Click a table to change its status manually'}
           </p>
@@ -1835,16 +1835,16 @@ const TableStatus = ({ user }) => {
           )}
         </div>
       </div>
-      {isCaptain && (
+      {isWaiter && (
         <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border w-fit ${
-          isDeliveryCaptain
+          isDeliveryWaiter
             ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
             : 'bg-green-500/10 border-green-500/30 text-green-400'
         }`}>
           <Shield size={12} />
           <span className="text-xs font-black uppercase tracking-widest">
-            {isDeliveryCaptain
-              ? '🚗 Delivery & Pickup Captain'
+            {isDeliveryWaiter
+              ? '🚗 Delivery & Pickup Waiter'
               : `🪑 Zone: ${tables.map(t => t.label || `Table ${t.table_number}`).join(' · ')}`}
           </span>
         </div>
@@ -1935,14 +1935,14 @@ const TableStatus = ({ user }) => {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN WAITER (optional)</label>
                     <select
-                      value={addForm.captain_id}
-                      onChange={e => setAddForm(p => ({ ...p, captain_id: e.target.value }))}
+                      value={addForm.waiter_id}
+                      onChange={e => setAddForm(p => ({ ...p, waiter_id: e.target.value }))}
                       className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
                     >
                       <option value="">— Unassigned —</option>
-                      {captains.map(c => (
+                      {waiters.map(c => (
                         <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
                       ))}
                     </select>
@@ -2026,14 +2026,14 @@ const TableStatus = ({ user }) => {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN WAITER (optional)</label>
                     <select
-                      value={editForm.captain_id}
-                      onChange={e => setEditForm(p => ({ ...p, captain_id: e.target.value }))}
+                      value={editForm.waiter_id}
+                      onChange={e => setEditForm(p => ({ ...p, waiter_id: e.target.value }))}
                       className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
                     >
                       <option value="">— Unassigned —</option>
-                      {captains.map(c => (
+                      {waiters.map(c => (
                         <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
                       ))}
                     </select>
@@ -2107,8 +2107,8 @@ const TableStatus = ({ user }) => {
                     <p className="text-[9px] text-yellow-300/60">{tableRes.guests} guests</p>
                   </div>
                 )}
-                {t.captain_id && (
-                  <p className="text-[9px] text-text-muted mb-1 truncate">👤 {t.captain_id.name || 'Captain'}</p>
+                {t.waiter_id && (
+                  <p className="text-[9px] text-text-muted mb-1 truncate">👤 {t.waiter_id.name || 'Waiter'}</p>
                 )}
                 <select
                   value={t.status}
@@ -2861,7 +2861,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
     try {
       // Staff-only targets all staff roles; customer targets customers
       const target_roles = form.is_staff_only
-        ? ['owner', 'manager', 'captain', 'chef']
+        ? ['owner', 'manager', 'waiter', 'chef']
         : ['customer'];
       const payload = {
         ...form,
@@ -2889,7 +2889,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
   const priorityBorder = { low: 'border-white/5', normal: 'border-blue-500/20', high: 'border-yellow-500/30', urgent: 'border-red-500/40' };
 
   // Split announcements: staff vs customer
-  const STAFF_ROLES = ['owner','manager','captain','chef'];
+  const STAFF_ROLES = ['owner','manager','waiter','chef'];
   const isStaffAnnouncement = (a) => a.target_roles?.some(r => STAFF_ROLES.includes(r)) && !a.target_roles?.includes('customer');
   const customerAnnouncements = announcements.filter(a => !isStaffAnnouncement(a));
   const staffAnnouncements    = announcements.filter(a => isStaffAnnouncement(a));
@@ -2936,7 +2936,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                   <input type="checkbox" checked={form.is_staff_only} onChange={sb('is_staff_only')} className="w-4 h-4 rounded accent-purple-400" />
                   <span className="text-sm font-bold text-purple-400 flex items-center gap-2">👥 Staff Only Announcement</span>
                 </label>
-                <p className="text-xs text-text-muted">{form.is_staff_only ? 'Visible only to: Owner, Manager, Captain, Chef' : 'Will be shown to customers'}</p>
+                <p className="text-xs text-text-muted">{form.is_staff_only ? 'Visible only to: Owner, Manager, Waiter, Chef' : 'Will be shown to customers'}</p>
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Title *</label>
@@ -3048,7 +3048,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
         <div className="space-y-4">
           {announcementTab === 'staff' && (
             <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl px-4 py-3 flex items-center gap-2">
-              <span className="text-purple-400 text-xs font-bold">👥 Staff-only announcements — visible to Owner, Manager, Captain & Chef only</span>
+              <span className="text-purple-400 text-xs font-bold">👥 Staff-only announcements — visible to Owner, Manager, Waiter & Chef only</span>
             </div>
           )}
           {visibleAnnouncements.map(a => (
@@ -3246,13 +3246,13 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
   const maxHours = staffStats.length ? Math.max(...staffStats.map(s => s.hours), 1) : 1;
 
   const roleColors = {
-    captain: 'bg-green-500 text-green-400',
+    waiter: 'bg-green-500 text-green-400',
     chef:    'bg-orange-500 text-orange-400',
     manager: 'bg-blue-500 text-blue-400',
     owner:   'bg-purple-500 text-purple-400',
   };
   const roleBadge = {
-    captain: 'bg-green-500/10 text-green-400 border-green-500/20',
+    waiter: 'bg-green-500/10 text-green-400 border-green-500/20',
     chef:    'bg-orange-500/10 text-orange-400 border-orange-500/20',
     manager: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     owner:   'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -3315,11 +3315,11 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
 
     
 
-      {/* Role filter buttons — only shown to admins; captain/chef only see their own */}
+      {/* Role filter buttons — only shown to admins; waiter/chef only see their own */}
       {isAdmin && (
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
-          {['all', 'captain', 'chef', 'manager', 'owner'].map(r => (
+          {['all', 'waiter', 'chef', 'manager', 'owner'].map(r => (
             <button key={r} onClick={() => setRoleFilter(r)}
               className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
                 ? r === 'all' ? 'bg-primary text-white border-primary' : `border ${roleBadge[r] || 'bg-primary text-white border-primary'} opacity-100`
@@ -3477,20 +3477,20 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [allTables, setAllTables] = useState([]);
   const [activeShiftIds, setActiveShiftIds] = useState(new Set()); // user IDs currently on shift
-  const [captainTableMap, setCaptainTableMap] = useState({}); // captainId → [tableIds]
+  const [waiterTableMap, setWaiterTableMap] = useState({}); // waiterId → [tableIds]
   const [form, setForm] = useState({
-    name: '', email: '', phone: '', password: '', role: 'captain',
+    name: '', email: '', phone: '', password: '', role: 'waiter',
     dob: '', gender: '', address: '', city: '', state: '', pincode: '',
     emergency_contact_name: '', emergency_contact_phone: '',
     joining_date: '', id_proof_type: '', id_proof_number: '',
     salary: '', bank_account: '', ifsc_code: '',
   });
-  const [selectedTableIds, setSelectedTableIds] = useState([]); // for captain assignment
+  const [selectedTableIds, setSelectedTableIds] = useState([]); // for waiter assignment
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
   const allowedRoles = currentUserRole === 'owner'
-    ? ['manager', 'captain', 'chef', 'servant', 'helper', 'cleaner', 'security']
-    : ['captain', 'chef', 'servant', 'helper', 'cleaner', 'security'];
+    ? ['manager', 'waiter', 'chef', 'servant', 'helper', 'cleaner', 'security']
+    : ['waiter', 'chef', 'servant', 'helper', 'cleaner', 'security'];
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -3500,19 +3500,19 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       const allStaff = results.flatMap(r => r.data || []);
       setStaff(allStaff);
 
-      // Load all tables + build captain→tables map
+      // Load all tables + build waiter→tables map
       const tablesRes = await tablesAPI.getAll();
       const tables = tablesRes.data || [];
       setAllTables(tables);
       const map = {};
       for (const t of tables) {
-        if (t.captain_id) {
-          const capId = t.captain_id._id || t.captain_id;
+        if (t.waiter_id) {
+          const capId = t.waiter_id._id || t.waiter_id;
           if (!map[capId]) map[capId] = [];
           map[capId].push(t._id);
         }
       }
-      setCaptainTableMap(map);
+      setWaiterTableMap(map);
 
       // Fetch currently active shifts to show real-time availability
       try {
@@ -3536,8 +3536,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 
   const openEdit = (u) => {
     setEditTarget(u);
-    // Load current table assignments for this captain
-    const currentTableIds = (captainTableMap[u._id] || []);
+    // Load current table assignments for this waiter
+    const currentTableIds = (waiterTableMap[u._id] || []);
     setSelectedTableIds(currentTableIds);
     setForm({ name: u.name, email: u.email || '', phone: u.phone || '', password: '', role: u.role, dob: u.dob ? u.dob.split('T')[0] : '', gender: u.gender || '', address: u.address || '', city: u.city || '', state: u.state || '', pincode: u.pincode || '', emergency_contact_name: u.emergency_contact_name || '', emergency_contact_phone: u.emergency_contact_phone || '', joining_date: u.joining_date ? u.joining_date.split('T')[0] : '', id_proof_type: u.id_proof_type || '', id_proof_number: u.id_proof_number || '', salary: u.salary || '', bank_account: u.bank_account || '', ifsc_code: u.ifsc_code || '' });
     setShowForm(true);
@@ -3576,20 +3576,20 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
         flash(`${form.role} added successfully`);
       }
 
-      // If role is captain, handle table assignments
-      if (form.role === 'captain' && savedUser?._id) {
-        const captainId = savedUser._id;
+      // If role is waiter, handle table assignments
+      if (form.role === 'waiter' && savedUser?._id) {
+        const waiterId = savedUser._id;
 
-        // 1. Unassign tables currently owned by this captain that are no longer selected
-        const previousTableIds = editTarget ? (captainTableMap[editTarget._id] || []) : [];
+        // 1. Unassign tables currently owned by this waiter that are no longer selected
+        const previousTableIds = editTarget ? (waiterTableMap[editTarget._id] || []) : [];
         const toUnassign = previousTableIds.filter(id => !selectedTableIds.includes(id));
         for (const tid of toUnassign) {
-          await tablesAPI.assignCaptain(tid, null);
+          await tablesAPI.assignWaiter(tid, null);
         }
 
-        // 2. Assign newly selected tables to this captain
+        // 2. Assign newly selected tables to this waiter
         for (const tid of selectedTableIds) {
-          await tablesAPI.assignCaptain(tid, captainId);
+          await tablesAPI.assignWaiter(tid, waiterId);
         }
       }
 
@@ -3620,7 +3620,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 
   const roleColor = {
     manager:  'text-blue-400 bg-blue-500/10 border-blue-500/20',
-    captain:  'text-green-400 bg-green-500/10 border-green-500/20',
+    waiter:  'text-green-400 bg-green-500/10 border-green-500/20',
     chef:     'text-orange-400 bg-orange-500/10 border-orange-500/20',
     servant:  'text-purple-400 bg-purple-500/10 border-purple-500/20',
     helper:   'text-pink-400 bg-pink-500/10 border-pink-500/20',
@@ -3630,9 +3630,9 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 
   const filteredStaff = roleFilter === 'all' ? staff : staff.filter(u => u.role === roleFilter);
 
-  // Tables available for captain assignment (show all tables, mark which captain has them)
+  // Tables available for waiter assignment (show all tables, mark which waiter has them)
   const getTableOwnerName = (tableId) => {
-    for (const [capId, tableIds] of Object.entries(captainTableMap)) {
+    for (const [capId, tableIds] of Object.entries(waiterTableMap)) {
       if (tableIds.includes(tableId)) {
         const cap = staff.find(s => s._id === capId);
         if (cap && (!editTarget || capId !== editTarget._id)) return cap.name;
@@ -3646,7 +3646,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">Staff Management</h2>
-          <p className="text-text-muted text-sm">{currentUserRole === 'owner' ? 'Manage all managers, captains & chefs' : 'Manage captains and chefs'}</p>
+          <p className="text-text-muted text-sm">{currentUserRole === 'owner' ? 'Manage all managers, waiters & chefs' : 'Manage waiters and chefs'}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={load} className="flex items-center gap-2 px-3 md:px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
@@ -3727,8 +3727,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                   </div>
                 )}
 
-                {/* Captain Table Assignment Section */}
-                {form.role === 'captain' && (
+                {/* Waiter Table Assignment Section */}
+                {form.role === 'waiter' && (
                   <div className="bg-green-500/5 border border-green-500/20 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center gap-2">
                       <Shield size={14} className="text-green-400" />
@@ -3736,7 +3736,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                         TABLE ZONE ASSIGNMENT
                       </label>
                     </div>
-                    <p className="text-[10px] text-text-muted">Select which tables this captain will manage. Only this captain will receive notifications for these tables.</p>
+                    <p className="text-[10px] text-text-muted">Select which tables this waiter will manage. Only this waiter will receive notifications for these tables.</p>
                     {allTables.length === 0 ? (
                       <p className="text-[10px] text-text-muted italic">No tables available yet. Add tables first from the Table Status module.</p>
                     ) : (
@@ -3775,7 +3775,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                       </p>
                     )}
                     {selectedTableIds.length === 0 && (
-                      <p className="text-[10px] text-text-muted italic">No tables selected — this captain will handle Delivery & Pickup only.</p>
+                      <p className="text-[10px] text-text-muted italic">No tables selected — this waiter will handle Delivery & Pickup only.</p>
                     )}
                   </div>
                 )}
@@ -3829,8 +3829,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
           </div>
           <div className="divide-y divide-white/5">
             {filteredStaff.map(u => {
-              const assignedTables = u.role === 'captain'
-                ? allTables.filter(t => (t.captain_id?._id || t.captain_id) === u._id)
+              const assignedTables = u.role === 'waiter'
+                ? allTables.filter(t => (t.waiter_id?._id || t.waiter_id) === u._id)
                 : [];
               return (
                 <div key={u._id} className="flex flex-col md:flex-row md:items-center px-4 md:px-6 py-4 md:py-5 hover:bg-white/3 group gap-3 md:gap-0">
@@ -3844,7 +3844,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{u.name}</p>
                       <p className="text-[10px] text-text-muted">{u.email}</p>
-                      {u.role === 'captain' && (
+                      {u.role === 'waiter' && (
                         <p className="text-[10px] text-green-400 mt-0.5">
                           {assignedTables.length > 0
                             ? `🪑 ${assignedTables.map(t => t.label).join(', ')}`
@@ -3980,7 +3980,7 @@ const LeaveModule = ({ user }) => {
   const [form, setForm] = useState({ from_date: '', to_date: '', leave_type: 'casual', reason: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
-  const isStaff = ['captain', 'chef'].includes(user.role);
+  const isStaff = ['waiter', 'chef'].includes(user.role);
   const isManager = user.role === 'manager';
   const isOwner = user.role === 'owner';
   const canApprove = isManager || isOwner;
@@ -4039,7 +4039,7 @@ const LeaveModule = ({ user }) => {
   const canApproveLeave = (leave) => {
     const leaveRole = leave.role || leave.user_id?.role || '';
     if (isOwner) return true;                                                   // owner approves all
-    if (isManager) return ['captain', 'chef'].includes(leaveRole);              // manager approves captain/chef only
+    if (isManager) return ['waiter', 'chef'].includes(leaveRole);              // manager approves waiter/chef only
     return false;
   };
 
@@ -5762,7 +5762,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 };
 
 // ─── ORDER BOOKING (live orders panel + POS) ─────────────────────────────────
-const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, deleteOrder, captainTableNumbers, liveDeliveries = [] }) => {
+const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, deleteOrder, waiterTableNumbers, liveDeliveries = [] }) => {
   // Augment each delivery order with its live delivery record for dispatch gating
   const ordersWithDelivery = React.useMemo(() => {
     if (!liveDeliveries.length) return orders;
@@ -5778,26 +5778,26 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
   const [filterStatus, setFilterStatus] = useState('all');
 
   // Declare BEFORE useMemo to avoid temporal dead zone
-  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
-  const isDineInCaptain   = user.role === 'captain' && captainTableNumbers && captainTableNumbers.length > 0;
+  const isDeliveryWaiter = user.role === 'waiter' && (!waiterTableNumbers || waiterTableNumbers.length === 0);
+  const isDineInWaiter   = user.role === 'waiter' && waiterTableNumbers && waiterTableNumbers.length > 0;
 
-  // For captains: filter orders to ONLY show their zone (dine-in: their tables; delivery captain: delivery+pickup)
-  const captainFiltered = React.useMemo(() => {
-    if (user.role !== 'captain') return ordersWithDelivery;
+  // For waiters: filter orders to ONLY show their zone (dine-in: their tables; delivery waiter: delivery+pickup)
+  const waiterFiltered = React.useMemo(() => {
+    if (user.role !== 'waiter') return ordersWithDelivery;
     const parseTableNum = (raw) => { const m = String(raw || '').match(/\d+/); return m ? parseInt(m[0]) : NaN; };
-    if (isDeliveryCaptain) {
+    if (isDeliveryWaiter) {
       return ordersWithDelivery.filter(o => ['delivery','pickup','takeaway'].includes(o.order_type));
     }
-    // Dine-in captain: only their assigned tables
+    // Dine-in waiter: only their assigned tables
     return ordersWithDelivery.filter(o => {
       if (['delivery','pickup','takeaway'].includes(o.order_type)) return false; // not their zone
       const tNum = parseTableNum(o.table_number);
-      const captainIdMatch = o.captain_id && ((o.captain_id._id || o.captain_id) === user._id || (o.captain_id._id || o.captain_id) === user.id);
-      return (captainTableNumbers || []).includes(tNum) || captainIdMatch;
+      const waiterIdMatch = o.waiter_id && ((o.waiter_id._id || o.waiter_id) === user._id || (o.waiter_id._id || o.waiter_id) === user.id);
+      return (waiterTableNumbers || []).includes(tNum) || waiterIdMatch;
     });
-  }, [ordersWithDelivery, user, isDeliveryCaptain, captainTableNumbers]);
+  }, [ordersWithDelivery, user, isDeliveryWaiter, waiterTableNumbers]);
 
-  const filtered = (filterStatus === 'all' ? captainFiltered : captainFiltered.filter(o => o.status === filterStatus));
+  const filtered = (filterStatus === 'all' ? waiterFiltered : waiterFiltered.filter(o => o.status === filterStatus));
 
   // Count orders needing confirmation
   const pendingConfirmCount = ordersWithDelivery.filter(o => o.status === 'pending_confirmation').length;
@@ -5821,30 +5821,30 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
         </div>
       </div>
 
-      {/* Captain Zone Banner */}
-      {user.role === 'captain' && (
-        <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${isDeliveryCaptain ? 'bg-blue-500/10 border-blue-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg ${isDeliveryCaptain ? 'bg-blue-500/20' : 'bg-green-500/20'}`}>
-            {isDeliveryCaptain ? '🚗' : '🪑'}
+      {/* Waiter Zone Banner */}
+      {user.role === 'waiter' && (
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${isDeliveryWaiter ? 'bg-blue-500/10 border-blue-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg ${isDeliveryWaiter ? 'bg-blue-500/20' : 'bg-green-500/20'}`}>
+            {isDeliveryWaiter ? '🚗' : '🪑'}
           </div>
           <div>
-            <p className={`text-xs font-black uppercase tracking-widest ${isDeliveryCaptain ? 'text-blue-400' : 'text-green-400'}`}>
-              Your Zone · {isDeliveryCaptain ? 'Delivery & Pickup Captain' : `Tables ${captainTableNumbers.map(n => `Table ${n}`).join(', ')}`}
+            <p className={`text-xs font-black uppercase tracking-widest ${isDeliveryWaiter ? 'text-blue-400' : 'text-green-400'}`}>
+              Your Zone · {isDeliveryWaiter ? 'Delivery & Pickup Waiter' : `Tables ${waiterTableNumbers.map(n => `Table ${n}`).join(', ')}`}
             </p>
             <p className="text-[10px] text-text-muted mt-0.5">
-              {isDeliveryCaptain
+              {isDeliveryWaiter
                 ? 'Delivery orders: Start → Done → Dispatch → Paid. Pickup/Takeaway orders: Start → Done → Collected.'
                 : `You see and manage orders for your assigned tables only. Buttons on other-zone tables are locked.`}
             </p>
           </div>
-          <div className={`ml-auto px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border ${isDeliveryCaptain ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' : 'bg-green-500/20 border-green-500/30 text-green-400'}`}>
+          <div className={`ml-auto px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border ${isDeliveryWaiter ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' : 'bg-green-500/20 border-green-500/30 text-green-400'}`}>
             {orders.length} order{orders.length !== 1 ? 's' : ''} in zone
           </div>
         </div>
       )}
 
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
-        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onConfirmOrder={confirmOrder} onDelete={deleteOrder} statusColors={STATUS_COLORS} captainTableNumbers={captainTableNumbers} />
+        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onConfirmOrder={confirmOrder} onDelete={deleteOrder} statusColors={STATUS_COLORS} waiterTableNumbers={waiterTableNumbers} />
       </div>
     </div>
   );
@@ -7267,7 +7267,7 @@ const RidersPanel = ({ currentUserRole }) => {
   const activeDeliveries  = deliveries.filter(d => ['assigned','picked_up','in_transit'].includes(d.status));
   const totalEarnings     = deliveries.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 0), 0);
   // Only delivery orders need dispatch (rider assigned but not yet dispatched)
-  const awaitingDispatch  = deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched && d.order_id?.order_type === 'delivery');
+  const awaitingDispatch  = deliveries.filter(d => d.status === 'assigned' && !d.waiter_dispatched && d.order_id?.order_type === 'delivery');
 
   return (
     <div className="space-y-8">
@@ -7316,7 +7316,7 @@ const RidersPanel = ({ currentUserRole }) => {
         ))}
       </div>
 
-      {/* Delivery orders awaiting dispatch — rider assigned but captain hasn't dispatched yet */}
+      {/* Delivery orders awaiting dispatch — rider assigned but waiter hasn't dispatched yet */}
       {awaitingDispatch.length > 0 && (
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5">
           <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -7712,16 +7712,16 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         const [shiftsRes, leavesRes, ordersRes] = await Promise.all([
           shiftsAPI.getAll(`?user_id=${staffUser._id}`),   // ← fixed: user_id not userId; no period so all shifts returned
           leavesAPI.getAll(),
-          ordersAPI.getAll(`?captain_id=${staffUser._id}&chef_id=${staffUser._id}`).catch(() =>
-            ordersAPI.getAll(`?captain_id=${staffUser._id}`).catch(() => ({ data: [] }))
+          ordersAPI.getAll(`?waiter_id=${staffUser._id}&chef_id=${staffUser._id}`).catch(() =>
+            ordersAPI.getAll(`?waiter_id=${staffUser._id}`).catch(() => ({ data: [] }))
           ),
         ]);
         setAllShifts(shiftsRes.data || []);
         const all = leavesRes.data || [];
         setLeaves(all.filter(l => String(l.user_id?._id || l.user_id) === String(staffUser._id)));
-        // fetch orders where this staff is captain OR chef
+        // fetch orders where this staff is waiter OR chef
         const [capRes, chefRes] = await Promise.allSettled([
-          ordersAPI.getAll(`?captain_id=${staffUser._id}`),
+          ordersAPI.getAll(`?waiter_id=${staffUser._id}`),
           ordersAPI.getAll(`?chef_id=${staffUser._id}`),
         ]);
         const capOrders  = capRes.status  === 'fulfilled' ? (capRes.value.data  || []) : [];
@@ -7826,7 +7826,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
   const maxBarH = Math.max(...graphBars.map(b => b.hours), 0.1);
 
   const roleBadge = {
-    captain: 'bg-green-500/10 text-green-400 border-green-500/20',
+    waiter: 'bg-green-500/10 text-green-400 border-green-500/20',
     chef:    'bg-orange-500/10 text-orange-400 border-orange-500/20',
     manager: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     owner:   'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -8122,8 +8122,8 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                   <div className="divide-y divide-white/5 max-h-[520px] overflow-y-auto">
                     {staffOrders.map(o => {
                       const isChef    = String(o.chef_id?._id    || o.chef_id)    === String(staffUser._id);
-                      const isCaptain = String(o.captain_id?._id || o.captain_id) === String(staffUser._id);
-                      const roleLabel = isChef && isCaptain ? 'Chef+Cap' : isChef ? 'Chef' : 'Captain';
+                      const isWaiter = String(o.waiter_id?._id || o.waiter_id) === String(staffUser._id);
+                      const roleLabel = isChef && isWaiter ? 'Chef+Cap' : isChef ? 'Chef' : 'Waiter';
                       return (
                         <div key={o._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
                           <div className="w-[14%] text-sm font-black text-primary">#{o.order_number}</div>
@@ -8363,7 +8363,7 @@ const CustomersPanel = () => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  MY PROFILE PANEL — Comprehensive self-profile for owner/manager/captain/chef
+//  MY PROFILE PANEL — Comprehensive self-profile for owner/manager/waiter/chef
 // ══════════════════════════════════════════════════════════════════════════════
 const MyProfilePanel = ({ user }) => {
   const { user: authUser, updateUser } = useAuth();
@@ -8408,7 +8408,7 @@ const MyProfilePanel = ({ user }) => {
       setShiftStats({ total: s.length, hours: hrs.toFixed(1), today: s.filter(sh => sh.check_in && new Date(sh.check_in) >= today).length });
     }).catch(() => {});
 
-    ordersAPI.getAll(`?captain_id=${user._id}`).then(r => {
+    ordersAPI.getAll(`?waiter_id=${user._id}`).then(r => {
       const o = r.data || [];
       setOrderStats({ total: o.length, paid: o.filter(x => x.status === 'paid').length });
     }).catch(() => {});
@@ -8449,7 +8449,7 @@ const MyProfilePanel = ({ user }) => {
   const roleBadgeColor = {
     owner:   'bg-purple-500/20 text-purple-400 border-purple-500/30',
     manager: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    captain: 'bg-green-500/20 text-green-400 border-green-500/30',
+    waiter: 'bg-green-500/20 text-green-400 border-green-500/30',
     chef:    'bg-orange-500/20 text-orange-400 border-orange-500/30',
     delivery:'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
   };
@@ -8740,7 +8740,7 @@ const navigate = useNavigate();
     getFinancialMetrics, loadOrders,
   } = useOrders();
 
-  const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'tables' : 'overview';
+  const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'waiter' ? 'tables' : 'overview';
   const [liveDeliveries, setLiveDeliveries] = React.useState([]);
 
   // Load delivery records for dispatch gating
@@ -8767,7 +8767,7 @@ const navigate = useNavigate();
   const [refreshing, setRefreshing] = useState(false);
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
   const [profileViewUser, setProfileViewUser] = useState(null);
-  const [captainTableNumbers, setCaptainTableNumbers] = useState([]);
+  const [waiterTableNumbers, setWaiterTableNumbers] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Check-in gate for non-owner staff
   const [checkedIn, setCheckedIn] = useState(
@@ -8776,7 +8776,7 @@ const navigate = useNavigate();
 
   // Load check-in status for staff roles
   useEffect(() => {
-    if (['manager','captain','chef','delivery'].includes(user.role)) {
+    if (['manager','waiter','chef','delivery'].includes(user.role)) {
       shiftsAPI.getMyActive()
         .then(r => setCheckedIn(!!(r.data)))
         .catch(() => setCheckedIn(false));
@@ -8785,19 +8785,19 @@ const navigate = useNavigate();
 
   // Poll check-in status every 30s so it auto-unlocks when they check in
   useAutoRefresh(() => {
-    if (['manager','captain','chef','delivery'].includes(user.role)) {
+    if (['manager','waiter','chef','delivery'].includes(user.role)) {
       shiftsAPI.getMyActive()
         .then(r => setCheckedIn(!!(r.data)))
         .catch(() => {});
     }
   }, 15000);
 
-  // Load captain's assigned tables for zone-aware filtering
+  // Load waiter's assigned tables for zone-aware filtering
   useEffect(() => {
-    if (user.role === 'captain') {
+    if (user.role === 'waiter') {
       tablesAPI.getMyTables()
-        .then(res => setCaptainTableNumbers((res.data || []).map(t => parseInt(t.table_number)).filter(n => !isNaN(n))))
-        .catch(() => setCaptainTableNumbers([]));
+        .then(res => setWaiterTableNumbers((res.data || []).map(t => parseInt(t.table_number)).filter(n => !isNaN(n))))
+        .catch(() => setWaiterTableNumbers([]));
     }
   }, [user.role]);
 
@@ -8808,7 +8808,7 @@ const navigate = useNavigate();
     announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
     staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub', waste_chef: 'Waste Log',
     customers: 'Customers',
-    my_orders: 'My Orders', captain_bonus: 'My Bonus', chef_orders: 'Order History', staff: 'My Profile',
+    my_orders: 'My Orders', waiter_bonus: 'My Bonus', chef_orders: 'Order History', staff: 'My Profile',
   };
 
   useEffect(() => {
@@ -8827,7 +8827,7 @@ const navigate = useNavigate();
     setTimeout(() => setRefreshing(false), 600);
   }, [loadOrders]);
 
-  // Accept / Reject a dine-in pending_confirmation order (owner + manager + dine-in captain for their tables)
+  // Accept / Reject a dine-in pending_confirmation order (owner + manager + dine-in waiter for their tables)
   const confirmOrder = useCallback(async (id, action) => {
     try {
       await ordersAPI.confirmOrder(id, action);
@@ -8838,15 +8838,15 @@ const navigate = useNavigate();
   }, [handleRefresh]);
 
   // Role-aware status update: chef can only do start_cooking / completed_cooking
-  // captain/manager/owner can do served / paid / dispatched
+  // waiter/manager/owner can do served / paid / dispatched
   const updateOrderStatus = useCallback(async (id, status) => {
     const CHEF_OK    = ['start_cooking', 'completed_cooking'];
-    const CAPTAIN_OK = ['start_cooking', 'completed_cooking', 'dispatched', 'served', 'paid', 'cancelled'];
+    const WAITER_OK = ['start_cooking', 'completed_cooking', 'dispatched', 'served', 'paid', 'cancelled'];
     if (user.role === 'chef'    && !CHEF_OK.includes(status))    return;
-    if (user.role === 'captain' && !CAPTAIN_OK.includes(status)) return;
+    if (user.role === 'waiter' && !WAITER_OK.includes(status)) return;
 
     // When dispatching a delivery order, also call deliveryAPI.dispatch()
-    // on the linked delivery record so captain_dispatched=true and rider pickup unlocks
+    // on the linked delivery record so waiter_dispatched=true and rider pickup unlocks
     if (status === 'dispatched') {
       try {
         const orderObj = orders.find(o => o._id === id);
@@ -8899,7 +8899,7 @@ const navigate = useNavigate();
 
   return (
     <div className="min-h-screen bg-bg-main flex">
-      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} captainTableNumbers={captainTableNumbers} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} waiterTableNumbers={waiterTableNumbers} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-hidden">
         <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} onMenuToggle={() => setSidebarOpen(o => !o)} />
         <main className="flex-1 overflow-y-auto px-4 md:px-8 py-3 md:py-4 md:py-6">
@@ -8911,7 +8911,7 @@ const navigate = useNavigate();
           )}
 
           {/* ── CHECK-IN GATE: staff must check in to access dashboard ──── */}
-          {['manager','captain','chef','delivery'].includes(user.role) && !checkedIn ? (
+          {['manager','waiter','chef','delivery'].includes(user.role) && !checkedIn ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 md:px-8">
               <div className="w-20 h-20 bg-primary/10 border border-primary/20 rounded-3xl flex items-center justify-center mb-6">
                 <Shield size={36} className="text-primary" />
@@ -8956,7 +8956,7 @@ const navigate = useNavigate();
             {activeTab === 'orders' && (
               <MotionDiv key="orders" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} confirmOrder={confirmOrder} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} liveDeliveries={liveDeliveries} />
+                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} confirmOrder={confirmOrder} deleteOrder={deleteOrder} waiterTableNumbers={waiterTableNumbers} liveDeliveries={liveDeliveries} />
               </MotionDiv>
             )}
 
@@ -9040,7 +9040,7 @@ const navigate = useNavigate();
             )}
 
             {/* RIDERS HUB */}
-            {activeTab === 'riders' && (isAdmin || user.role === 'captain') && (
+            {activeTab === 'riders' && (isAdmin || user.role === 'waiter') && (
               <MotionDiv key="riders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <RidersPanel currentUserRole={user.role} />
               </MotionDiv>
@@ -9060,18 +9060,18 @@ const navigate = useNavigate();
               </MotionDiv>
             )}
 
-            {/* CAPTAIN MY ORDERS */}
-            {activeTab === 'my_orders' && user.role === 'captain' && (
+            {/* WAITER MY ORDERS */}
+            {activeTab === 'my_orders' && user.role === 'waiter' && (
               <MotionDiv key="my_orders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <CaptainMyOrders user={user} allOrders={orders} captainTableNumbers={captainTableNumbers} />
+                <WaiterMyOrders user={user} allOrders={orders} waiterTableNumbers={waiterTableNumbers} />
               </MotionDiv>
             )}
 
-            {/* CAPTAIN BONUS MODULE */}
-            {activeTab === 'captain_bonus' && user.role === 'captain' && (
-              <MotionDiv key="captain_bonus" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <CaptainBonusModule user={user} allOrders={orders} captainTableNumbers={captainTableNumbers} />
+            {/* WAITER BONUS MODULE */}
+            {activeTab === 'waiter_bonus' && user.role === 'waiter' && (
+              <MotionDiv key="waiter_bonus" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <WaiterBonusModule user={user} allOrders={orders} waiterTableNumbers={waiterTableNumbers} />
               </MotionDiv>
             )}
 

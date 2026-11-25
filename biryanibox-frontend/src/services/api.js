@@ -112,7 +112,7 @@ export const ordersAPI = {
   delete:        (id)                => request(`/orders/${id}`,         { method: 'DELETE' }),
   financials:    ()                  => request('/orders/financials'),
   history:       (customerId)        => request(`/orders/history/${customerId}`),
-  captainOrders: (captainId, period) => request(`/orders/my-captain-orders/${captainId}?period=${period}`),
+  waiterOrders: (waiterId, period) => request(`/orders/my-waiter-orders/${waiterId}?period=${period}`),
   chefOrders:    (chefId, period)    => request(`/orders/my-chef-orders/${chefId}?period=${period}`),
   getByCustomer: (customerId, params = '') => request(`/orders?customer_id=${customerId}${params}`),
 };
@@ -177,9 +177,9 @@ export const tablesAPI = {
   create:              (body)                   => request('/tables',                        { method: 'POST',  body: JSON.stringify(body) }),
   update:              (id, body)               => request(`/tables/${id}`,                  { method: 'PUT',   body: JSON.stringify(body) }),
   setStatus:           (id, status)             => request(`/tables/${id}/status`,           { method: 'PATCH', body: JSON.stringify({ status }) }),
-  assignCaptain:       (id, captain_id)         => request(`/tables/${id}/assign-captain`,   { method: 'PATCH', body: JSON.stringify({ captain_id }) }),
-  assignBulk:          (assignments)            => request('/tables/assign-captains-bulk',   { method: 'POST',  body: JSON.stringify({ assignments }) }),
-  assignCaptainTables: (table_ids, captain_id)  => request('/tables/assign-captain-tables',  { method: 'PATCH', body: JSON.stringify({ table_ids, captain_id }) }),
+  assignWaiter:       (id, waiter_id)         => request(`/tables/${id}/assign-waiter`,   { method: 'PATCH', body: JSON.stringify({ waiter_id }) }),
+  assignBulk:          (assignments)            => request('/tables/assign-waiters-bulk',   { method: 'POST',  body: JSON.stringify({ assignments }) }),
+  assignWaiterTables: (table_ids, waiter_id)  => request('/tables/assign-waiter-tables',  { method: 'PATCH', body: JSON.stringify({ table_ids, waiter_id }) }),
   delete:              (id)                     => request(`/tables/${id}`,                  { method: 'DELETE' }),
 };
 
@@ -360,8 +360,8 @@ export const normalizeOrder = (order) => ({
   table:                     order.table_number,
   table_number:              order.table_number,
   order_type:                order.order_type || 'dine_in',
-  captain:                   order.captain_id?.name || order.captain_id || '',
-  captain_id:                order.captain_id,
+  waiter:                   order.waiter_id?.name || order.waiter_id || '',
+  waiter_id:                order.waiter_id,
   chef:                      order.chef_id?.name || order.chef_id || '',
   chef_id:                   order.chef_id,
   // Track who served/dispatched — set on 'served' (dine-in) and 'dispatched' (pickup/delivery)

@@ -30,38 +30,38 @@ const notifyRoles = async (roles, { type, title, message }) => {
   await Notification.insertMany(users.map(u => ({ user_id: u._id, type, title, message })));
 };
 
-// ── Helper: get captain for a table number ────────────────────────────────
-// Tables 1-3 → captain 1, 4-6 → captain 2, 7-9 → captain 3 (dynamic, based on DB assignments)
-// Takeaway/Delivery → captain with role 'captain' who handles delivery (4th captain)
-const getCaptainForTable = async (tableNumber) => {
+// ── Helper: get waiter for a table number ────────────────────────────────
+// Tables 1-3 → waiter 1, 4-6 → waiter 2, 7-9 → waiter 3 (dynamic, based on DB assignments)
+// Takeaway/Delivery → waiter with role 'waiter' who handles delivery (4th waiter)
+const getWaiterForTable = async (tableNumber) => {
   if (!tableNumber || tableNumber === 'Takeaway') {
-    // Captain 4: delivery/pickup captain — no tables assigned
-    const allCaptains = await User.find({ role: 'captain', is_active: true });
-    for (const cap of allCaptains) {
-      const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
-      if (!hasTables) return cap; // captain with no tables = delivery captain
+    // Waiter 4: delivery/pickup waiter — no tables assigned
+    const allWaiters = await User.find({ role: 'waiter', is_active: true });
+    for (const waiter of allWaiters) {
+      const hasTables = await RestaurantTable.findOne({ waiter_id: waiter._id, is_active: true });
+      if (!hasTables) return waiter; // waiter with no tables = delivery waiter
     }
     return null;
   }
   // Try label match first (e.g. "Table 7", "Table 2")
-  const byLabel = await RestaurantTable.findOne({ label: tableNumber }).populate('captain_id');
-  if (byLabel) return byLabel.captain_id || null;
+  const byLabel = await RestaurantTable.findOne({ label: tableNumber }).populate('waiter_id');
+  if (byLabel) return byLabel.waiter_id || null;
   // Fallback: numeric match
   const tNum = parseInt(tableNumber);
   if (!isNaN(tNum)) {
-    const byNum = await RestaurantTable.findOne({ table_number: tNum }).populate('captain_id');
-    return byNum?.captain_id || null;
+    const byNum = await RestaurantTable.findOne({ table_number: tNum }).populate('waiter_id');
+    return byNum?.waiter_id || null;
   }
   return null;
 };
 
 // ── Status permission rules ────────────────────────────────────────────────
 const STATUS_PERMISSIONS = {
-  start_cooking:     ['chef', 'captain'],          // only chef/captain can start cooking
-  completed_cooking: ['chef', 'captain'],          // only chef/captain can mark cooking done
-  dispatched:        ['captain', 'manager', 'owner'],
-  served:            ['captain', 'manager', 'owner'],
-  paid:              ['captain', 'manager', 'owner', 'delivery'], // rider can mark paid
+  start_cooking:     ['chef', 'waiter'],          // only chef/waiter can start cooking
+  completed_cooking: ['chef', 'waiter'],          // only chef/waiter can mark cooking done
+  dispatched:        ['waiter', 'manager', 'owner'],
+  served:            ['waiter', 'manager', 'owner'],
+  paid:              ['waiter', 'manager', 'owner', 'delivery'], // rider can mark paid
   cancelled:         ['manager', 'owner'],
 };
 // Note: actual next-status is computed dynamically in getNextStatus() based on order_type
@@ -139,7 +139,7 @@ router.get('/history/:customerId', protect, async (req, res, next) => {
     const deliveryOrderIds = orders.filter(o => o.order_type === 'delivery').map(o => o._id);
     const deliveries = deliveryOrderIds.length
       ? await Delivery.find({ order_id: { $in: deliveryOrderIds } })
-          .select('order_id status captain_dispatched picked_up_at in_transit_at delivered_at')
+          .select('order_id status waiter_dispatched picked_up_at in_transit_at delivered_at')
           .lean()
       : [];
     const deliveryByOrderId = {};
@@ -180,7 +180,7 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
       customer_id: req.params.customerId,
       status: { $nin: ['paid', 'cancelled', 'delivered'] },
     })
-      .populate('captain_id', 'name')
+      .populate('waiter_id', 'name')
       .populate('chef_id', 'name')
       .populate('served_by', 'name')
       .sort({ created_at: -1 });
@@ -193,7 +193,7 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
       let delivery = null;
       if (order.order_type === 'delivery') {
         delivery = await Delivery.findOne({ order_id: order._id })
-          .select('status captain_dispatched driver_id rider_lat rider_lng current_location assigned_at dispatched_at picked_up_at in_transit_at delivered_at')
+          .select('status waiter_dispatched driver_id rider_lat rider_lng current_location assigned_at dispatched_at picked_up_at in_transit_at delivered_at')
           .populate('driver_id', 'name phone vehicle_type')
           .lean();
       }
@@ -203,8 +203,8 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/orders/my-captain-orders/:captainId ──────────────────────────
-router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
+// ── GET /api/orders/my-waiter-orders/:waiterId ──────────────────────────
+router.get('/my-waiter-orders/:waiterId', protect, async (req, res, next) => {
   try {
     const { period } = req.query;
     let dateFilter = {};
@@ -212,7 +212,7 @@ router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
     if (period === 'today') dateFilter = { created_at: { $gte: new Date(now.setHours(0,0,0,0)) } };
     else if (period === 'weekly') { const w = new Date(); w.setDate(w.getDate()-7); dateFilter = { created_at: { $gte: w } }; }
     else if (period === 'monthly') { const m = new Date(); m.setMonth(m.getMonth()-1); dateFilter = { created_at: { $gte: m } }; }
-    const orders = await Order.find({ captain_id: req.params.captainId, status: { $in: ['served','paid'] }, ...dateFilter })
+    const orders = await Order.find({ waiter_id: req.params.waiterId, status: { $in: ['served','paid'] }, ...dateFilter })
       .populate('customer_id', 'name phone').sort({ created_at: -1 });
     const result = [];
     for (const o of orders) {
@@ -245,7 +245,7 @@ router.get('/my-chef-orders/:chefId', protect, async (req, res, next) => {
 // ── GET /api/orders ───────────────────────────────────────────────────────
 router.get('/', protect, async (req, res, next) => {
   try {
-    const { status, table, captain_id, chef_id, order_type, period, customer_id } = req.query;
+    const { status, table, waiter_id, chef_id, order_type, period, customer_id } = req.query;
     const filter = {};
 
     // ── CUSTOMER: only see their own orders ───────────────────────────────────
@@ -269,7 +269,7 @@ router.get('/', protect, async (req, res, next) => {
     // ── STAFF: full query support ─────────────────────────────────────────────
     if (status) filter.status = status;
     if (table) filter.table_number = table;
-    if (captain_id) filter.captain_id = captain_id;
+    if (waiter_id) filter.waiter_id = waiter_id;
     if (chef_id) filter.chef_id = chef_id;
     if (order_type) filter.order_type = order_type;
     if (customer_id) filter.customer_id = customer_id;
@@ -283,24 +283,24 @@ router.get('/', protect, async (req, res, next) => {
       delete filter.chef_id;
     }
 
-    // ── CAPTAIN: only see orders in their zone ────────────────────────────────
-    if (req.user.role === 'captain') {
-      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
-      const captainTableNums = captainTables.map(t => t.table_number);
-      const isDeliveryCaptain = captainTableNums.length === 0;
-      if (isDeliveryCaptain) {
-        // Delivery captain sees only delivery/pickup/takeaway orders
+    // ── WAITER: only see orders in their zone ────────────────────────────────
+    if (req.user.role === 'waiter') {
+      const waiterTables = await RestaurantTable.find({ waiter_id: req.user._id, is_active: true });
+      const waiterTableNums = waiterTables.map(t => t.table_number);
+      const isDeliveryWaiter = waiterTableNums.length === 0;
+      if (isDeliveryWaiter) {
+        // Delivery waiter sees only delivery/pickup/takeaway orders
         filter.order_type = { $in: ['delivery', 'pickup', 'takeaway'] };
       } else {
-        // Dine-in captain sees only orders for their tables
+        // Dine-in waiter sees only orders for their tables
         // table_number stored as "1", "2", "Table 1", "Table 2" — match both formats
-        const tablePatterns = captainTableNums.flatMap(n => [String(n), `Table ${n}`]);
+        const tablePatterns = waiterTableNums.flatMap(n => [String(n), `Table ${n}`]);
         filter.table_number = { $in: tablePatterns };
       }
     }
     const orders = await Order.find(filter)
       .populate('customer_id', 'name email phone')
-      .populate('captain_id', 'name')
+      .populate('waiter_id', 'name')
       .populate('chef_id', 'name')
       .populate('served_by', 'name')
       .sort({ created_at: -1 });
@@ -313,14 +313,14 @@ router.get('/', protect, async (req, res, next) => {
       if (!itemsByOrder[key]) itemsByOrder[key] = [];
       itemsByOrder[key].push({ _id: item._id, menu_item_id: item.menu_item_id?._id || item.menu_item_id, name: item.name || item.menu_item_id?.name || 'Unknown Item', category: item.menu_item_id?.category || '', image_url: item.menu_item_id?.image_url || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
     });
-    // Include delivery record for delivery AND pickup orders (for captain name + dispatch gating)
+    // Include delivery record for delivery AND pickup orders (for waiter name + dispatch gating)
     const deliveryOrderIds = orders
       .filter(o => ['delivery','pickup','takeaway'].includes(o.order_type))
       .map(o => o._id);
     const deliveryRecords = deliveryOrderIds.length
       ? await Delivery.find({ order_id: { $in: deliveryOrderIds } })
-          .select('order_id status driver_id captain_dispatched rider_lat rider_lng dispatched_by')
-          .populate('dispatched_by', 'name')   // captain who dispatched — for SERVED BY column
+          .select('order_id status driver_id waiter_dispatched rider_lat rider_lng dispatched_by')
+          .populate('dispatched_by', 'name')   // waiter who dispatched — for SERVED BY column
           .populate('driver_id', 'name')
           .lean()
       : [];
@@ -371,7 +371,7 @@ router.get('/:id', protect, async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('customer_id', 'name email phone')
-      .populate('captain_id', 'name')
+      .populate('waiter_id', 'name')
       .populate('chef_id', 'name');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
     const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name image_url category');
@@ -380,7 +380,7 @@ router.get('/:id', protect, async (req, res, next) => {
     let delivery = null;
     if (order.order_type === 'delivery') {
       delivery = await Delivery.findOne({ order_id: order._id })
-        .select('status captain_dispatched driver_id assigned_at dispatched_at picked_up_at in_transit_at delivered_at')
+        .select('status waiter_dispatched driver_id assigned_at dispatched_at picked_up_at in_transit_at delivered_at')
         .lean();
     }
     res.json({ success: true, data: { ...order.toObject(), items, delivery } });
@@ -408,15 +408,15 @@ const createOrder = async (req, res, next) => {
     const isGuest  = !actor;
     const isCustomerRole = actor?.role === 'customer';
 
-    // For customers: always use their own ID as customer_id; ignore any captain_id from body
+    // For customers: always use their own ID as customer_id; ignore any waiter_id from body
     // For staff (POS): use the customer_id from body if provided
     // For guests: no customer account is linked — contact details are stored on the order
     const customer_id = isCustomerRole
       ? actor._id
       : (actor ? (req.body.customer_id || null) : null);
 
-    // captain_id: only trust it from staff, never from customers/guests
-    const captain_id = (isCustomerRole || isGuest) ? null : (req.body.captain_id || null);
+    // waiter_id: only trust it from staff, never from customers/guests
+    const waiter_id = (isCustomerRole || isGuest) ? null : (req.body.waiter_id || null);
 
     // ── Customer contact details (name + phone required, email optional) ──────
     const contactName  = String(customer_name  || '').trim();
@@ -513,27 +513,27 @@ const createOrder = async (req, res, next) => {
         return res.status(400).json({ success: false, message: 'Unknown table — please rescan the QR code on your table.' });
     }
 
-    // Auto-assign captain based on table
-    let assignedCaptainId = captain_id;
-    if (!assignedCaptainId && resolvedTableNum) {
+    // Auto-assign waiter based on table
+    let assignedWaiterId = waiter_id;
+    if (!assignedWaiterId && resolvedTableNum) {
       const tableRec = await RestaurantTable.findOne({ table_number: resolvedTableNum });
-      if (tableRec?.captain_id) assignedCaptainId = tableRec.captain_id;
+      if (tableRec?.waiter_id) assignedWaiterId = tableRec.waiter_id;
     }
-    // If still no captain and the staff member placing the order IS a captain, assign them
-    if (!assignedCaptainId && actor?.role === 'captain') {
-      assignedCaptainId = actor._id;
+    // If still no waiter and the staff member placing the order IS a waiter, assign them
+    if (!assignedWaiterId && actor?.role === 'waiter') {
+      assignedWaiterId = actor._id;
     }
 
     const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
 
-    // Dine-in orders are NOT gated behind a captain/manager approval step —
+    // Dine-in orders are NOT gated behind a waiter/manager approval step —
     // every order lands in the kitchen queue immediately so the chef is
     // notified the moment the customer places it.
     const isDineIn = finalOrderType === 'dine-in';
     const initialStatus = 'pending';
 
     const order = await Order.create({
-      customer_id, captain_id: assignedCaptainId, table_number,
+      customer_id, waiter_id: assignedWaiterId, table_number,
       subtotal,                                          // original item total before discounts
       coupon_discount:    couponDiscount,                // reward coupon deduction
       gift_card_discount: giftDiscount,                  // gift card deduction
@@ -603,14 +603,14 @@ const createOrder = async (req, res, next) => {
       await RestaurantTable.findOneAndUpdate({ table_number: resolvedTableNum }, { status: 'occupied' });
     }
 
-    // ── For delivery/pickup: notify ONLY captain4 (no-table captain) ─────────
+    // ── For delivery/pickup: notify ONLY waiter4 (no-table waiter) ─────────
     if (finalOrderType === 'delivery' || isTakeaway) {
-      const allCaptains = await User.find({ role: 'captain', is_active: true });
-      for (const cap of allCaptains) {
-        const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
+      const allWaiters = await User.find({ role: 'waiter', is_active: true });
+      for (const waiter of allWaiters) {
+        const hasTables = await RestaurantTable.findOne({ waiter_id: waiter._id, is_active: true });
         if (!hasTables) {
           await Notification.create({
-            user_id: cap._id, type: 'new_order',
+            user_id: waiter._id, type: 'new_order',
             title: finalOrderType === 'delivery' ? '🚗 New Delivery Order' : '📦 New Pickup Order',
             message: `Order #${order.order_number} — ${finalOrderType}. Total: ₹${order.total}`,
           });
@@ -636,7 +636,7 @@ router.post('/', protect, requireCheckIn, createOrder);
 router.post('/guest', optionalProtect, createOrder);
 
 // ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
-router.patch('/:id/confirm', protect, requireCheckIn, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
+router.patch('/:id/confirm', protect, requireCheckIn, authorize('owner', 'manager', 'waiter'), async (req, res, next) => {
   try {
     const { action } = req.body; // 'accept' | 'reject'
     if (!['accept', 'reject'].includes(action))
@@ -728,25 +728,25 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
       }
     }
 
-    // ── Captain zone constraint: captain can only serve/pay their own tables ──
-    if (userRole === 'captain' && ['served', 'paid', 'start_cooking', 'completed_cooking'].includes(status)) {
-      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
-      const captainTableNums = captainTables.map(t => t.table_number);
-      const isDeliveryCaptain = captainTableNums.length === 0;
-      if (isDeliveryCaptain) {
-        // Delivery captain can only advance delivery/pickup orders
+    // ── Waiter zone constraint: waiter can only serve/pay their own tables ──
+    if (userRole === 'waiter' && ['served', 'paid', 'start_cooking', 'completed_cooking'].includes(status)) {
+      const waiterTables = await RestaurantTable.find({ waiter_id: req.user._id, is_active: true });
+      const waiterTableNums = waiterTables.map(t => t.table_number);
+      const isDeliveryWaiter = waiterTableNums.length === 0;
+      if (isDeliveryWaiter) {
+        // Delivery waiter can only advance delivery/pickup orders
         if (!['delivery', 'pickup', 'takeaway'].includes(order.order_type)) {
           return res.status(403).json({ success: false, message: 'You handle delivery & pickup orders only. This is a dine-in order.' });
         }
       } else {
-        // Dine-in captain: verify table is in their zone
+        // Dine-in waiter: verify table is in their zone
         const rawTable = String(order.table_number || '');
         const match = rawTable.match(/\d+/);
         const orderTableNum = match ? parseInt(match[0]) : NaN;
-        if (isNaN(orderTableNum) || !captainTableNums.includes(orderTableNum)) {
+        if (isNaN(orderTableNum) || !waiterTableNums.includes(orderTableNum)) {
           return res.status(403).json({
             success: false,
-            message: `Table ${order.table_number} is not in your zone. You manage: ${captainTableNums.map(n => `Table ${n}`).join(', ')}.`
+            message: `Table ${order.table_number} is not in your zone. You manage: ${waiterTableNums.map(n => `Table ${n}`).join(', ')}.`
           });
         }
       }
@@ -799,18 +799,18 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
         { status: 'done', completed_at: new Date() }
       );
     }
-    if (status === 'served' && ['captain','manager','owner'].includes(userRole)) {
-      updateData.captain_id = req.user._id;
+    if (status === 'served' && ['waiter','manager','owner'].includes(userRole)) {
+      updateData.waiter_id = req.user._id;
       updateData.served_by  = req.user._id; // track who served for dine-in
     }
 
     // Track who dispatched for pickup and delivery orders
-    if (status === 'dispatched' && ['captain','manager','owner'].includes(userRole)) {
+    if (status === 'dispatched' && ['waiter','manager','owner'].includes(userRole)) {
       updateData.served_by = req.user._id;
     }
 
     const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true })
-      .populate('captain_id', 'name')
+      .populate('waiter_id', 'name')
       .populate('chef_id', 'name')
       .populate('served_by', 'name');
 
@@ -825,7 +825,7 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
 
     // ── Create Delivery record when chef starts COOKING (new flow) ──────────
     // Delivery appears in rider dashboard as soon as cooking starts.
-    // Riders can ACCEPT it, but cannot PICKUP until captain dispatches.
+    // Riders can ACCEPT it, but cannot PICKUP until waiter dispatches.
     if (status === 'start_cooking' && updated.order_type === 'delivery') {
       const alreadyExists = await Delivery.findOne({ order_id: updated._id });
       if (!alreadyExists) {
@@ -846,13 +846,13 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
           delivery_fee:     updated.delivery_fee    || 0,
           status:           'pending',
           order_placed_at:  new Date(),
-          captain_dispatched: false,
+          waiter_dispatched: false,
         });
         // Notify ALL riders immediately
         const riders = await User.find({ role: 'delivery', is_active: true });
         await Notification.insertMany(riders.map(u => ({
           user_id: u._id, type: 'delivery', title: '🍳 New Order Being Prepared',
-          message: `Order #${updated.order_number} is now cooking — accept it now to claim delivery. You can pick up once captain dispatches.`,
+          message: `Order #${updated.order_number} is now cooking — accept it now to claim delivery. You can pick up once waiter dispatches.`,
         })));
       }
     }
@@ -865,14 +865,14 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
         user_id: u._id, type: 'cooking', title: '🔥 Cooking Started',
         message: `Order #${updated.order_number} — chef started cooking`,
       })));
-      // For delivery/pickup: also notify captain4 that cooking has started
+      // For delivery/pickup: also notify waiter4 that cooking has started
       if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
-        const allCaptains = await User.find({ role: 'captain', is_active: true });
-        for (const cap of allCaptains) {
-          const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
+        const allWaiters = await User.find({ role: 'waiter', is_active: true });
+        for (const waiter of allWaiters) {
+          const hasTables = await RestaurantTable.findOne({ waiter_id: waiter._id, is_active: true });
           if (!hasTables) {
             await Notification.create({
-              user_id: cap._id, type: 'cooking',
+              user_id: waiter._id, type: 'cooking',
               title: '🍳 Cooking Started — Pickup/Delivery',
               message: `Order #${updated.order_number} is now cooking. Type: ${updated.order_type}. Prepare for dispatch.`,
             });
@@ -881,7 +881,7 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
       }
     }
 
-    // ── Notify when cooking done — ONLY relevant captain ────────────────────
+    // ── Notify when cooking done — ONLY relevant waiter ────────────────────
     if (status === 'completed_cooking') {
       // Always notify owner + manager
       const managers = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
@@ -890,21 +890,21 @@ router.patch('/:id/status', protect, requireCheckIn, async (req, res, next) => {
         message: `Order #${updated.order_number} cooking done — ${updated.table_number ? `Table ${updated.table_number}` : updated.order_type}`,
       })));
 
-      if (updated.order_type === 'dine-in' && updated.captain_id) {
-        // Notify only the captain assigned to this table
+      if (updated.order_type === 'dine-in' && updated.waiter_id) {
+        // Notify only the waiter assigned to this table
         await Notification.create({
-          user_id: updated.captain_id, type: 'order_ready',
+          user_id: updated.waiter_id, type: 'order_ready',
           title: '✅ Order Ready — Your Table',
           message: `Order #${updated.order_number} is ready. Table ${updated.table_number} — serve now!`,
         });
       } else if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
-        // Notify captain4 (no-table captain) for pickup/delivery
-        const allCaptains4 = await User.find({ role: 'captain', is_active: true });
-        for (const cap of allCaptains4) {
-          const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
+        // Notify waiter4 (no-table waiter) for pickup/delivery
+        const allWaiters4 = await User.find({ role: 'waiter', is_active: true });
+        for (const waiter of allWaiters4) {
+          const hasTables = await RestaurantTable.findOne({ waiter_id: waiter._id, is_active: true });
           if (!hasTables) {
             await Notification.create({
-              user_id: cap._id, type: 'order_ready',
+              user_id: waiter._id, type: 'order_ready',
               title: '✅ Order Ready — Dispatch Now',
               message: `Order #${updated.order_number} cooking complete. Type: ${updated.order_type}. Ready for dispatch to rider.`,
             });

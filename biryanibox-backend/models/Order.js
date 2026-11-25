@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const OrderSchema = new mongoose.Schema({
   order_number:   { type: String, unique: true, sparse: true },
   customer_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  captain_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  waiter_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   chef_id:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // Person who served (dine-in) / dispatched (pickup) / dispatched (delivery)
   served_by:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

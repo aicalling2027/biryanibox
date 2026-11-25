@@ -40,8 +40,8 @@ const DeliverySchema = new mongoose.Schema({
   last_location_at:  { type: Date },
   delivery_fee:      { type: Number, default: 40 },
 
-  // Captain dispatch flag — rider cannot pickup until captain marks dispatched
-  captain_dispatched:{ type: Boolean, default: false },
+  // Waiter dispatch flag — rider cannot pickup until waiter marks dispatched
+  waiter_dispatched:{ type: Boolean, default: false },
   dispatched_at:     { type: Date, default: null },
   dispatched_by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 

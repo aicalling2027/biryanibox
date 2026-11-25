@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const LeaveSchema = new mongoose.Schema({
   user_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  role:       { type: String, enum: ['captain', 'chef', 'manager', 'owner'], required: true },
+  role:       { type: String, enum: ['waiter', 'chef', 'manager', 'owner'], required: true },
   leave_type: { type: String, enum: ['sick', 'casual', 'emergency', 'annual', 'unpaid'], default: 'casual' },
   from_date:  { type: Date, required: true },
   to_date:    { type: Date, required: true },

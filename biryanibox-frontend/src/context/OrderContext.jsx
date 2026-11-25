@@ -116,9 +116,9 @@ export const OrderProvider = ({ children }) => {
   const dismissCustomerNotification = () => setCustomerNotification(null);
 
   // ── Create order via API ────────────────────────────────────────────────────
-  // BUG FIX: Do NOT send captain_id for customers — that's a staff-only field.
-  // The backend auto-assigns the captain based on the table.
-  const createOrder = async (cart, table, captain, customerName = null, deliveryParams = {}) => {
+  // BUG FIX: Do NOT send waiter_id for customers — that's a staff-only field.
+  // The backend auto-assigns the waiter based on the table.
+  const createOrder = async (cart, table, waiter, customerName = null, deliveryParams = {}) => {
     try {
       const user = JSON.parse(localStorage.getItem('bb_user') || 'null');
       const {
@@ -160,7 +160,7 @@ export const OrderProvider = ({ children }) => {
         items:     cart,
         total:     newOrder.total,
         table,
-        captain,
+        waiter,
         timestamp: newOrder.timestamp,
       });
       ingredientsAPI.getAll().then(r => setIngredients(r.data.map(normalizeIngredient))).catch(() => {});

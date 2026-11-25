@@ -225,7 +225,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const canAccept  = delivery.status === 'pending';
   const canPickup  = delivery.status === 'assigned';
-  const dispatched = !!delivery.captain_dispatched;
+  const dispatched = !!delivery.waiter_dispatched;
   const canTransit = delivery.status === 'picked_up';
   const canDeliver = delivery.status === 'in_transit';
   const [distKm, setDistKm] = useState(delivery.distance_km || 0);
@@ -388,7 +388,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
             <AlertTriangle size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-xs text-amber-300 font-bold">Waiting for Dispatch</p>
-              <p className="text-[10px] text-amber-400/70 mt-0.5">Captain, manager, or owner must dispatch this order before you can pick it up. You'll get a notification.</p>
+              <p className="text-[10px] text-amber-400/70 mt-0.5">Waiter, manager, or owner must dispatch this order before you can pick it up. You'll get a notification.</p>
             </div>
           </div>
         )}
@@ -659,7 +659,7 @@ export default function DeliveryDashboard() {
     setActLoading(true);
     try {
       await deliveryAPI.accept(id);
-      showFlash('✅ Accepted! Waiting for captain to dispatch before pickup.', 'success');
+      showFlash('✅ Accepted! Waiting for waiter to dispatch before pickup.', 'success');
       await loadAll(); setTab('active');
     } catch (e) { showFlash(e.message || 'Failed to accept', 'error'); }
     finally { setActLoading(false); }
@@ -679,7 +679,7 @@ export default function DeliveryDashboard() {
       await deliveryAPI.updateStatus(id, 'picked_up');
       showFlash('📦 Picked up! Now on the way to customer.', 'success');
       await loadAll();
-    } catch (e) { showFlash(e.message || 'Cannot pick up yet — captain must dispatch first!', 'error'); }
+    } catch (e) { showFlash(e.message || 'Cannot pick up yet — waiter must dispatch first!', 'error'); }
     finally { setActLoading(false); }
   };
 
@@ -963,7 +963,7 @@ export default function DeliveryDashboard() {
                   {[
                     { icon: '🍳', step: 'Chef starts cooking',    desc: 'Order shows in your Available tab' },
                     { icon: '✋', step: 'Accept the order',        desc: 'Reserved for you — hidden from others' },
-                    { icon: '📡', step: 'Captain dispatches',      desc: 'You\'ll get a notification — pickup unlocked' },
+                    { icon: '📡', step: 'Waiter dispatches',      desc: 'You\'ll get a notification — pickup unlocked' },
                     { icon: '📦', step: 'Pick up from restaurant', desc: 'Head to restaurant and collect order' },
                     { icon: '🛵', step: 'Mark "On the Way"',       desc: 'Customer knows you\'re coming' },
                     { icon: '🏠', step: 'Mark Delivered',          desc: 'Earn your delivery fee!' },

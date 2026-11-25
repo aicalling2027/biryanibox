@@ -49,7 +49,7 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
           <div className="grid grid-cols-3 gap-2 mb-4">
             {[
               { icon: Package, label: 'Order ID', value: `#${notification.orderId.slice(-6).toUpperCase()}` },
-              { icon: User,    label: 'Captain',  value: notification.captain },
+              { icon: User,    label: 'Waiter',  value: notification.waiter },
               { icon: Clock,   label: 'Table',    value: notification.table },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="bg-white/5 rounded-xl p-3 border border-white/5">
@@ -529,7 +529,7 @@ const POS = ({ user, onBack }) => {
                         className={`px-4 py-2 rounded-xl text-xs uppercase tracking-widest transition-all border whitespace-nowrap font-bold ${selectedTable === t.label ? 'bg-primary text-white border-primary' : 'bg-transparent text-text-muted border-white/10 hover:border-white/30'}`}>
                         <span className={`inline-flex items-center gap-1.5 ${t.type === 'vip' ? 'text-yellow-400' : ''}`}>
                           {t.type === 'vip' && '⭐'} {t.label}
-                          {t.captain_id && <span className="text-[9px] text-white/30 ml-1">({t.captain_id.name?.split(' ')[0]})</span>}
+                          {t.waiter_id && <span className="text-[9px] text-white/30 ml-1">({t.waiter_id.name?.split(' ')[0]})</span>}
                         </span>
                       </button>
                     ))}

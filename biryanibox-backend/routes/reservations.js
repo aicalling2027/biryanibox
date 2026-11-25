@@ -239,7 +239,7 @@ router.patch('/:id/status', protect, authorize('owner','manager'), async (req, r
 });
 
 // ── PATCH /api/reservations/:id/confirm — with 30-min conflict check ──────
-router.patch('/:id/confirm', protect, authorize('owner','manager','captain'), async (req, res, next) => {
+router.patch('/:id/confirm', protect, authorize('owner','manager','waiter'), async (req, res, next) => {
   try {
     const { quotation_message, table_assigned } = req.body;
 

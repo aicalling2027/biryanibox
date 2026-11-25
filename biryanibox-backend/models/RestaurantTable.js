@@ -6,7 +6,7 @@ const RestaurantTableSchema = new mongoose.Schema({
   capacity:     { type: Number, min: 1, default: 4 },
   type:         { type: String, enum: ['regular', 'vip', 'outdoor'], default: 'regular' },
   status:       { type: String, enum: ['available', 'occupied', 'reserved', 'not_available'], default: 'available' },
-  captain_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  waiter_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   is_active:    { type: Boolean, default: true },
 });
 

@@ -79,7 +79,7 @@ router.get('/queue', protect, async (req, res, next) => {
 });
 
 // POST /api/kitchen/assignments
-router.post('/assignments', protect, authorize('owner','manager','captain'), async (req, res, next) => {
+router.post('/assignments', protect, authorize('owner','manager','waiter'), async (req, res, next) => {
   try {
     const assignment = await ChefOrderAssignment.create(req.body);
     res.status(201).json({ success: true, data: assignment });

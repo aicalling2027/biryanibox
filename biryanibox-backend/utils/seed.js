@@ -27,11 +27,11 @@ const seed = async () => {
   const users = await User.insertMany([
     { name: 'Rajesh Kumar',   email: 'owner@biryanibox.com',    password_hash: await bcrypt.hash('owner123',    salt), role: 'owner',    is_active: true },
     { name: 'Priya Nair',     email: 'manager@biryanibox.com',  password_hash: await bcrypt.hash('manager123',  salt), role: 'manager',  is_active: true },
-    // 4 Captains
-    { name: 'Arjun Singh',    email: 'captain1@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
-    { name: 'Priya Sharma',   email: 'captain2@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
-    { name: 'Vikram Reddy',   email: 'captain3@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
-    { name: 'Meena Patel',    email: 'captain4@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
+    // 4 Waiters
+    { name: 'Arjun Singh',    email: 'waiter1@biryanibox.com', password_hash: await bcrypt.hash('waiter123',  salt), role: 'waiter',  is_active: true },
+    { name: 'Priya Sharma',   email: 'waiter2@biryanibox.com', password_hash: await bcrypt.hash('waiter123',  salt), role: 'waiter',  is_active: true },
+    { name: 'Vikram Reddy',   email: 'waiter3@biryanibox.com', password_hash: await bcrypt.hash('waiter123',  salt), role: 'waiter',  is_active: true },
+    { name: 'Meena Patel',    email: 'waiter4@biryanibox.com', password_hash: await bcrypt.hash('waiter123',  salt), role: 'waiter',  is_active: true },
     // 6 Chefs (one per station)
     { name: 'Rabbani Basha',  email: 'chef1@biryanibox.com',    password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
     { name: 'Sanjay Kumar',   email: 'chef2@biryanibox.com',    password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
@@ -574,28 +574,28 @@ const seed = async () => {
   ]);
   console.log('Restaurant tables seeded');
 
-  // ── AUTO-ASSIGN Captains to their Table Zones ──────────────────────────────
-  // Captain 1 → Tables 1, 2, 3
-  // Captain 2 → Tables 4, 5, 6
-  // Captain 3 → Tables 7, 8, 9
-  // Captain 4 → No tables (Delivery & Pickup only)
-  const cap1 = users.find(u => u.email === 'captain1@biryanibox.com');
-  const cap2 = users.find(u => u.email === 'captain2@biryanibox.com');
-  const cap3 = users.find(u => u.email === 'captain3@biryanibox.com');
+  // ── AUTO-ASSIGN Waiters to their Table Zones ──────────────────────────────
+  // Waiter 1 → Tables 1, 2, 3
+  // Waiter 2 → Tables 4, 5, 6
+  // Waiter 3 → Tables 7, 8, 9
+  // Waiter 4 → No tables (Delivery & Pickup only)
+  const waiter1 = users.find(u => u.email === 'waiter1@biryanibox.com');
+  const waiter2 = users.find(u => u.email === 'waiter2@biryanibox.com');
+  const waiter3 = users.find(u => u.email === 'waiter3@biryanibox.com');
 
-  await RestaurantTable.updateMany({ table_number: { $in: [1, 2, 3] } }, { captain_id: cap1._id });
-  await RestaurantTable.updateMany({ table_number: { $in: [4, 5, 6] } }, { captain_id: cap2._id });
-  await RestaurantTable.updateMany({ table_number: { $in: [7, 8, 9] } }, { captain_id: cap3._id });
-  console.log('Captain zones assigned:');
-  console.log(`  Captain1 (${cap1._id}) → Tables 1, 2, 3`);
-  console.log(`  Captain2 (${cap2._id}) → Tables 4, 5, 6`);
-  console.log(`  Captain3 (${cap3._id}) → Tables 7, 8, 9`);
-  console.log(`  Captain4 → Delivery & Pickup (no tables)`);
+  await RestaurantTable.updateMany({ table_number: { $in: [1, 2, 3] } }, { waiter_id: waiter1._id });
+  await RestaurantTable.updateMany({ table_number: { $in: [4, 5, 6] } }, { waiter_id: waiter2._id });
+  await RestaurantTable.updateMany({ table_number: { $in: [7, 8, 9] } }, { waiter_id: waiter3._id });
+  console.log('Waiter zones assigned:');
+  console.log(`  Waiter1 (${waiter1._id}) → Tables 1, 2, 3`);
+  console.log(`  Waiter2 (${waiter2._id}) → Tables 4, 5, 6`);
+  console.log(`  Waiter3 (${waiter3._id}) → Tables 7, 8, 9`);
+  console.log(`  Waiter4 → Delivery & Pickup (no tables)`);
 
   console.log('\n✅ Seed complete!\n');
   console.log('═══════════════════════════════════════════════════');
   console.log('  Summary');
-  console.log('  Users         : 16 (1 owner, 1 manager, 4 captains, 6 chefs, 3 riders, 1 customer)');
+  console.log('  Users         : 16 (1 owner, 1 manager, 4 waiters, 6 chefs, 3 riders, 1 customer)');
   console.log('  Kitchen Stns  : 6  (Biryani, Grill, Dessert, Curry, Tandoor, Beverages)');
   console.log('  Menu Items    : 35 (7 Biryani, 7 Appetizers, 5 Combos, 4 Breads, 5 Desserts, 7 Drinks)');
   console.log('  Ingredients   : 25 (Grains, Proteins, Vegetables, Dairy, Spices)');
@@ -605,10 +605,10 @@ const seed = async () => {
   console.log('\nLogin credentials:');
   console.log('  Owner:    owner@biryanibox.com    / owner123');
   console.log('  Manager:  manager@biryanibox.com  / manager123');
-  console.log('  Captain1: captain1@biryanibox.com / captain123  (Tables 1-3)');
-  console.log('  Captain2: captain2@biryanibox.com / captain123  (Tables 4-6)');
-  console.log('  Captain3: captain3@biryanibox.com / captain123  (Tables 7-9)');
-  console.log('  Captain4: captain4@biryanibox.com / captain123  (Delivery/Pickup)');
+  console.log('  Waiter1: waiter1@biryanibox.com / waiter123  (Tables 1-3)');
+  console.log('  Waiter2: waiter2@biryanibox.com / waiter123  (Tables 4-6)');
+  console.log('  Waiter3: waiter3@biryanibox.com / waiter123  (Tables 7-9)');
+  console.log('  Waiter4: waiter4@biryanibox.com / waiter123  (Delivery/Pickup)');
   console.log('  Chef1:    chef1@biryanibox.com    / chef123      (Biryani Station)');
   console.log('  Chef2:    chef2@biryanibox.com    / chef123      (Grill Station)');
   console.log('  Chef3:    chef3@biryanibox.com    / chef123      (Dessert Station)');

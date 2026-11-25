@@ -4,7 +4,7 @@ const Leave = require('../models/Leave');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 
-// Apply for leave (captain, chef, manager, owner can apply)
+// Apply for leave (waiter, chef, manager, owner can apply)
 router.post('/', protect, async (req, res, next) => {
   try {
     const { from_date, to_date, leave_type, reason } = req.body;
@@ -31,22 +31,22 @@ router.post('/', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Get leaves - own leaves for captain/chef, all for manager/owner
+// Get leaves - own leaves for waiter/chef, all for manager/owner
 router.get('/', protect, async (req, res, next) => {
   try {
     const { role: filterRole, status } = req.query;
     let filter = {};
     if (status) filter.status = status;
 
-    if (req.user.role === 'captain' || req.user.role === 'chef') {
+    if (req.user.role === 'waiter' || req.user.role === 'chef') {
       // Staff see only their own leaves
       filter.user_id = req.user._id;
     } else if (req.user.role === 'manager') {
-      // Manager sees captain and chef leaves (+ their own)
+      // Manager sees waiter and chef leaves (+ their own)
       if (filterRole) {
         filter.role = filterRole;
       } else {
-        filter.role = { $in: ['captain', 'chef', 'manager'] };
+        filter.role = { $in: ['waiter', 'chef', 'manager'] };
       }
     } else if (req.user.role === 'owner') {
       // Owner sees everyone
@@ -72,10 +72,10 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     const leave = await Leave.findById(req.params.id).populate('user_id', 'name role');
     if (!leave) return res.status(404).json({ success: false, message: 'Leave not found' });
 
-    // Permission: manager can approve captain/chef; owner can approve anyone
+    // Permission: manager can approve waiter/chef; owner can approve anyone
     if (req.user.role === 'manager') {
-      if (!['captain', 'chef', 'manager'].includes(leave.role)) {
-        return res.status(403).json({ success: false, message: 'Managers can only approve captain/chef/manager leaves' });
+      if (!['waiter', 'chef', 'manager'].includes(leave.role)) {
+        return res.status(403).json({ success: false, message: 'Managers can only approve waiter/chef/manager leaves' });
       }
     } else if (req.user.role !== 'owner') {
       return res.status(403).json({ success: false, message: 'Not authorized to approve/reject leaves' });

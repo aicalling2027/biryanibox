@@ -289,9 +289,9 @@ router.get('/top-items', protect, authorize('owner','manager'), async (req, res,
 // GET /api/dashboard/staff-performance
 router.get('/staff-performance', protect, authorize('owner','manager'), async (req, res, next) => {
   try {
-    const captains = await Order.aggregate([
-      { $match: { captain_id: { $exists: true, $ne: null } } },
-      { $group: { _id: '$captain_id', orders: { $sum: 1 }, revenue: { $sum: '$total' } } },
+    const waiters = await Order.aggregate([
+      { $match: { waiter_id: { $exists: true, $ne: null } } },
+      { $group: { _id: '$waiter_id', orders: { $sum: 1 }, revenue: { $sum: '$total' } } },
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
       { $unwind: '$user' },
       { $project: { name: '$user.name', role: '$user.role', orders: 1, revenue: 1 } },
@@ -305,7 +305,7 @@ router.get('/staff-performance', protect, authorize('owner','manager'), async (r
       { $project: { name: '$user.name', deliveries: 1, rating: '$user.driver_rating' } },
       { $sort: { deliveries: -1 } }
     ]);
-    res.json({ success: true, data: { captains, drivers } });
+    res.json({ success: true, data: { waiters, drivers } });
   } catch (err) { next(err); }
 });
 

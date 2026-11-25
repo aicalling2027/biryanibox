@@ -60,8 +60,8 @@ const getDeliveryStep = (order, delivery) => {
   if (order.status === 'paid') return 5;
   if (delivery?.status === 'delivered') return 4;
   if (delivery?.status === 'in_transit' || delivery?.status === 'picked_up') return 3;
-  if (delivery?.captain_dispatched || delivery?.status === 'assigned') return 2;
-  if (order.status === 'served') return 2; // captain dispatched = order becomes served
+  if (delivery?.waiter_dispatched || delivery?.status === 'assigned') return 2;
+  if (order.status === 'served') return 2; // waiter dispatched = order becomes served
   if (order.status === 'completed_cooking') return 1;
   if (order.status === 'start_cooking') return 1;
   return 0;
@@ -206,7 +206,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
           <span className="text-xl">🍽️</span>
           <div>
             <p className="text-sm font-black text-amber-300">Your food has been served!</p>
-            <p className="text-xs text-amber-400/70 mt-0.5">Please ask your captain for the bill to complete your order.</p>
+            <p className="text-xs text-amber-400/70 mt-0.5">Please ask your waiter for the bill to complete your order.</p>
           </div>
         </div>
       )}
@@ -225,7 +225,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
           <span className="text-xl">🍛</span>
           <div>
             <p className="text-sm font-black text-blue-300">Your order is ready!</p>
-            <p className="text-xs text-blue-400/70 mt-0.5">The captain will serve your food shortly.</p>
+            <p className="text-xs text-blue-400/70 mt-0.5">The waiter will serve your food shortly.</p>
           </div>
         </div>
       )}

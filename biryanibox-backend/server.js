@@ -247,11 +247,11 @@ function startReservationJob() {
                 { status: 'reserved' }
               );
 
-              // Find the captain for this table and notify
-              const tableRec = await RestaurantTable.findOne({ table_number: tNum }).populate('captain_id');
-              if (tableRec?.captain_id) {
+              // Find the waiter for this table and notify
+              const tableRec = await RestaurantTable.findOne({ table_number: tNum }).populate('waiter_id');
+              if (tableRec?.waiter_id) {
                 await Notification.create({
-                  user_id: tableRec.captain_id._id,
+                  user_id: tableRec.waiter_id._id,
                   type: 'reservation',
                   title: '⏰ Table Reserved in 30 Minutes',
                   message: `Table ${res.table_assigned} is reserved for ${res.customer_name} at ${res.time} (${res.guests} guests). Please prepare the table.`,

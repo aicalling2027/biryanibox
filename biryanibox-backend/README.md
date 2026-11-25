@@ -48,7 +48,7 @@ Server runs on http://localhost:5000
 |----------|------------------------------|--------------|
 | Owner    | owner@biryanibox.com         | owner123     |
 | Manager  | manager@biryanibox.com       | manager123   |
-| Captain  | captain@biryanibox.com       | captain123   |
+| Waiter  | waiter@biryanibox.com       | waiter123   |
 | Delivery | delivery@biryanibox.com      | delivery123  |
 | Customer | customer@biryanibox.com      | customer123  |
 
